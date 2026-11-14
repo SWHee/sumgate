@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{% if refresh %}<meta http-equiv="refresh" content="5">{% endif %}
+<title>SumGate {% block title %}{% endblock %}</title>
+<style>
+body{font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;margin:0;background:#f6f7f9;color:#1d2330;font-size:15px}
+header{background:#1d2330;color:#fff;padding:10px 16px}
+header h1{margin:0;font-size:20px;display:inline}
+header .sub{color:#c5cbd6;margin-left:8px}
+nav{background:#2c3446;padding:6px 16px}
+nav a{color:#fff;margin-right:14px;text-decoration:none}
+.bar{padding:6px 16px;background:#fff8e1;border-bottom:1px solid #e8d9a8;font-size:13px}
+main{padding:16px;max-width:1200px}
+section{background:#fff;border:1px solid #dde1e7;border-radius:6px;padding:12px 14px;margin-bottom:14px}
+h2{font-size:17px;margin:0 0 8px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border-bottom:1px solid #e6e9ee;padding:5px 6px;text-align:left;vertical-align:top}
+th{background:#f0f2f5}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:12px;font-weight:bold;margin-left:4px}
+.real{background:#d7f5df;color:#11622c;border:1px solid #11622c}
+.mock{background:#ffe7c7;color:#8a4b00;border:1px solid #8a4b00}
+.g{display:inline-block;padding:0 6px;border-radius:4px;font-size:12px;border:1px solid #888;margin-right:2px}
+.g-원본{background:#e3efff;border-color:#2457a6;color:#2457a6}
+.g-도출{background:#eef0f3;border-color:#555;color:#333}
+.g-가정{background:#fff3cd;border-color:#8a6d00;color:#6b5500}
+.g-합성{background:#f3e3ff;border-color:#6a2c91;color:#6a2c91}
+.g-모의회신{background:#ffe7c7;border-color:#8a4b00;color:#8a4b00}
+.st{font-weight:bold}
+.st-up{color:#b3261e}.st-ok{color:#11622c}.st-wait{color:#8a6d00}
+.msg{background:#e8f0fe;border:1px solid #2457a6;padding:8px 12px;margin-bottom:12px;border-radius:4px}
+form.inline{display:inline}
+button{padding:4px 10px;cursor:pointer}
+pre{white-space:pre-wrap;font-size:13px;background:#f6f7f9;padding:8px}
+mark{background:#ffe066}
+textarea{width:100%;font-family:inherit}
+.muted{color:#666;font-size:13px}
+</style>
+</head>
+<body>
+{% macro grade(g) %}{% if g == "가정" %}<span class="g g-가정">가정</span>{% elif g == "모의 회신" %}<span class="g g-모의회신">모의 회신</span>{% elif g %}<span class="g g-{{ g }}">{{ g }}</span>{% endif %}{% endmacro %}
+{% macro real() %}<span class="badge real">실제 작동</span>{% endmacro %}
+{% macro mock() %}<span class="badge mock">모의 처리</span>{% endmacro %}
+<header><h1>SumGate</h1><span class="sub">판매장려금 지급 승인 게이트</span>
+<span style="float:right">가상 시각 <b>{{ clock }}</b> |
+역할:
+{% for r in roles %}<a href="/role?r={{ r }}" style="color:{% if r == role %}#ffd54f;font-weight:bold{% else %}#c5cbd6{% endif %};margin-left:6px">{{ r }}</a>{% endfor %}
+</span></header>
+<nav><a href="/">대기열</a><a href="/tasks">작업함</a><a href="/mock">모의 입력</a><a href="/docs">문서</a><a href="/controls">대조와 과거 관찰</a><a href="/log">이력</a><a href="/scenarios">시나리오 실행과 초기화</a></nav>
+<div class="bar">시연용 단순화: 로그인 없이 상단 역할 선택으로 전환합니다. 현재 업무 흐름(영업지원 검토, 임원 승인, 회계 지급)은 W07 교육용 가정입니다.
+관계 정황은 소명 대상이며 확정 판단이 아닙니다. 등급: {{ grade("원본") }}{{ grade("도출") }}{{ grade("가정") }}{{ grade("합성") }}{{ grade("모의 회신") }}</div>
+<main>
+{% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
+{% block body %}{% endblock %}
+</main>
+</body>
+</html>

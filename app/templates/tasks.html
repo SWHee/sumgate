@@ -1,0 +1,31 @@
+{% extends "base.html" %}{% set refresh = True %}
+{% block title %}작업함{% endblock %}
+{% block body %}
+<section><h2>회계 회차별 지급 작업 목록 {{ real() }}</h2>
+<table><tr><th>회차(지급월)</th><th>지급 실행일(가정)</th><th class="num">건수</th><th class="num">금액(원)</th><th>상태</th><th>취소 이력(집계 제외)</th></tr>
+{% for m, v in cycles.items() %}<tr><td>{{ m }}</td><td>{{ m }}-06 {{ grade("가정") }}</td><td class="num">{{ v["건수"] }}</td><td class="num">{{ v["금액"]|won }}</td><td>{% for k, n in v["상태"].items() %}{{ k }} {{ n }}건{% if not loop.last %}, {% endif %}{% endfor %}</td><td class="muted">{% if v["취소 건수"] %}{{ v["취소 건수"] }}건, {{ v["취소 금액"]|won }}원{% endif %}</td></tr>{% endfor %}
+</table>
+<p>{% if role == "모의 외부" %}<form class="inline" method="post" action="/bank/all"><input type="hidden" name="result" value="성공"><button>지급 대기 전체에 모의 은행 성공 회신</button></form> {{ mock() }}{% endif %}</p>
+</section>
+{% for dept, ts in by_dept.items() %}
+<section><h2>{{ dept }} 작업 {{ real() }}</h2>
+<table><tr><th>작업</th><th>유형</th><th>상태</th><th>사건</th><th>요청</th><th>내용</th><th>생성(가상)</th><th>처리</th></tr>
+{% for t in ts %}<tr><td>{{ t.id }}</td><td>{{ t.type }}</td><td class="st">{{ t.status }}{% if t.grade == "모의 회신" %} {{ grade("모의 회신") }}{% endif %}</td>
+<td>{% if t.case_id %}<a href="/cases/{{ t.case_id }}">#{{ t.case_id }}</a>{% endif %}</td><td>{{ t.request_id }}</td>
+<td class="muted">{% for k, v in (t.payload|fromjson).items() %}{{ k }}: {{ v }}<br>{% endfor %}</td><td>{{ t.created_at }}</td>
+<td>
+{% if t.type == "지급계좌 확인" and t.status == "열림" and role == "모의 외부" %}{{ mock() }}
+<form class="inline" method="post" action="/tasks/{{ t.id }}/account-reply"><input type="hidden" name="valid" value="1"><button>대리점 회신: 유효</button></form>
+<form class="inline" method="post" action="/tasks/{{ t.id }}/account-reply"><input type="hidden" name="valid" value="0"><button>대리점 회신: 확인 불가</button></form>{% endif %}
+{% if t.type == "지급계좌 확인" and t.status == "확인 불가" and role == "영업지원" %}<form class="inline" method="post" action="/tasks/{{ t.id }}/recheck"><button>지급계좌 다시 확인 요청</button></form>{% endif %}
+{% if t.type == "관계 정보 확인" and t.status == "열림" %}<a href="/mock">모의 입력에서 정정 신고 넣기</a>{% endif %}
+{% if t.type == "회계 지급" and t.status == "지급 대기" and role == "모의 외부" %}{{ mock() }}
+<form class="inline" method="post" action="/tasks/{{ t.id }}/bank"><input type="hidden" name="result" value="성공"><button>은행 성공</button></form>
+<form class="inline" method="post" action="/tasks/{{ t.id }}/bank"><input type="hidden" name="result" value="반려"><button>은행 반려</button></form>{% endif %}
+{% if t.type == "은행 재처리" and t.status == "열림" and role == "회계" %}<form class="inline" method="post" action="/tasks/{{ t.id }}/retry"><button>재처리 요청</button></form>{% endif %}
+{% if t.type in ["지급계좌 확인", "회계 지급"] and t.status in ["열림", "지급 대기"] and role != "모의 외부" %}<span class="muted">회신은 모의 외부 역할에서 넣습니다</span>{% endif %}
+{% if t.type == "소명 요청" and t.status == "열림" %}<a href="/mock">모의 입력에서 소명 회신 넣기</a>{% endif %}
+{% if t.type == "재상신" and t.status == "열림" %}<a href="/cases/{{ t.case_id }}">사건에서 재상신</a>{% endif %}
+</td></tr>{% endfor %}</table></section>
+{% endfor %}
+{% endblock %}

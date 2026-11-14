@@ -1,0 +1,5 @@
+.venv
+.env
+tests
+**/__pycache__
+app/w07.db

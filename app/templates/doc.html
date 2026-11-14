@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}문서 {{ d.id }}{% endblock %}
+{% block body %}
+<section><h2>문서 #{{ d.id }}: {{ d.kind }} ({{ d.agency_id }}) {{ grade(d.grade) }}{{ mock() }}</h2>
+<p>상태 <b>{{ d.status }}</b>{% if d.confirmed_by %}, 확인자 {{ d.confirmed_by }}{% endif %}.
+추출기 <span class="badge {{ 'real' if d.extractor.startswith('AI 사용') else 'mock' }}">{{ d.extractor }}</span></p>
+<p class="muted">AI 추출 결과는 담당자가 확인하기 전에는 어떤 판정에도 쓰이지 않습니다. AI는 관계, 합산, 승인 경로를 판단하지 않습니다.</p>
+<h3>원문 (인용 위치 표시)</h3><pre>{{ marked }}</pre>
+</section>
+{% if ext.get("fields") %}<section><h2>구조화 결과 {{ real() }}</h2>
+<table><tr><th>항목</th><th>값</th><th>원문 인용</th><th>위치</th></tr>
+{% for k, label in fields.items() %}{% for it in ext["fields"][k] %}<tr><td>{{ label }}</td><td>{{ it.value }}</td><td>"{{ it.quote }}"</td><td>{{ it.start }}~{{ it.end }}</td></tr>{% else %}<tr><td>{{ label }}</td><td colspan="3" class="muted">없음</td></tr>{% endfor %}{% endfor %}
+</table>
+{% if ext["dropped"] %}<h3>근거 없음(버림)</h3><table>{% for it in ext["dropped"] %}<tr><td>{{ fields[it.field] }}</td><td>{{ it.value }}</td><td>"{{ it.quote }}"</td><td>{{ it.why }}</td></tr>{% endfor %}</table>{% endif %}
+</section>{% endif %}
+{% if d.status == "확인 대기" and role == "영업지원" %}<section><h2>담당자 확인 {{ real() }}</h2>
+<form method="post" action="/docs/{{ d.id }}/confirm">
+{% if d.kind == "정정 신고" %}
+<p>정정 사실 확정: 거래처 <input name="agency_id" value="{{ d.agency_id }}" size="7">
+항목 <select name="field">{% for f in ["주소", "대표자", "정산계좌"] %}<option {{ "selected" if proposal.field == f }}>{{ f }}</option>{% endfor %}</select>
+새 값 <input name="value" value="{{ proposal.value }}" size="30" required></p>
+<p class="muted">확정하면 마스터 새 버전이 만들어지고 코드가 관계와 합산을 다시 계산합니다. 승인된 사건은 실행 전 재검증에서 근거 변경을 확인합니다.</p>
+{% else %}<p>소명 내용을 확인했습니다. 거절된 사건은 다시 판정되어 재상신할 수 있게 됩니다. 관계 판정과 합산은 바뀌지 않습니다.</p>{% endif %}
+<button>확인</button></form></section>{% elif d.status == "확인 대기" %}<p class="muted">담당자 확인은 영업지원 역할에서 합니다.</p>{% endif %}
+{% endblock %}

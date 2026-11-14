@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% set refresh = True %}
+{% block title %}이력{% endblock %}
+{% block body %}
+<section><h2>마스터 정정 버전 {{ real() }}</h2>
+<table><tr><th>거래처</th><th>버전</th><th>대표자</th><th>주소</th><th>정산계좌</th><th>적용 시점</th><th>사유</th><th>등급</th><th>출처</th></tr>
+{% for v in versions %}<tr><td>{{ v.agency_id }}</td><td>v{{ v.version_no }}</td><td>{{ v.representative }}</td><td>{{ v.address }}</td><td>{{ v.account }}</td><td>{{ v.effective_at }}</td><td>{{ v.reason }}</td><td>{{ grade(v.grade) }}</td><td>{{ v.source_ref }}</td></tr>
+{% else %}<tr><td colspan="9" class="muted">정정 없음(전부 원본 v1)</td></tr>{% endfor %}</table></section>
+<section><h2>처리 이력 (최근 500건) {{ real() }}</h2>
+<table><tr><th>#</th><th>시각(가상)</th><th>주체</th><th>구분</th><th>행동</th><th>대상</th><th>내용</th><th>등급</th></tr>
+{% for e in events %}<tr><td>{{ e.id }}</td><td>{{ e.ts }}</td><td>{{ e.actor }}</td><td>{{ e.actor_type }}</td><td>{{ e.action }}</td><td>{{ e.ref }}</td><td><pre>{{ e.detail }}</pre></td><td>{{ grade(e.grade) }}</td></tr>{% endfor %}
+</table></section>
+{% endblock %}

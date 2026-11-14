@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}사건 {{ c.id }}{% endblock %}
+{% block body %}
+<section><h2>사건 #{{ c.id }}: {{ c.group_key.replace("+", ", ") }} {{ real() }}</h2>
+<table>
+<tr><th>상태</th><td class="st">{{ c.status }}{% if c.status in ["지급 완료", "지급 반려(재처리)"] %} {{ grade("모의 회신") }}{% endif %}</td><th>승인 경로</th><td class="st {{ 'st-up' if c.route == '영업임원 승인' }}">{{ c.route }}</td></tr>
+<tr><th>회차(지급월)</th><td>{{ c.pay_month }} (승인 마감 {{ deadline.strftime("%Y-%m-%d %H:%M") }} {{ grade("가정") }})</td><th>합계</th><td>{{ c.total|won }}원 {{ grade("도출") }}</td></tr>
+<tr><th>근거 해시</th><td colspan="3"><code>{{ c.basis_hash[:16] }}</code></td></tr>
+{% if c.prev_ids %}<tr><th>병합 전 사건</th><td colspan="3">{% for p in c.prev_ids.split(",") %}<a href="/cases/{{ p }}">#{{ p }}</a> {% endfor %}<span class="muted">이전 사건의 승인, 거절 기록은 아래 승인 기록에 함께 표시합니다</span></td></tr>{% endif %}
+</table>
+<p>
+{% if role == "영업지원" and c.status in ["상위 승인 필요", "승인 무효(재상신)"] %}<form class="inline" method="post" action="/cases/{{ c.id }}/submit"><button>{{ "재상신" if c.status == "승인 무효(재상신)" else "영업임원에게 상신" }}</button></form>{% endif %}
+{% if (role == "영업지원" and c.status == "전결 승인 대기") or (role == "영업임원" and c.status == "승인 대기") %}<b class="st st-up">이 승인은 {{ c.pay_month }} 회차 지급을 확정합니다</b>{% endif %}
+{% if role == "영업지원" and c.status == "전결 승인 대기" %}<form class="inline" method="post" action="/cases/{{ c.id }}/approve"><button>전결 승인</button></form>{% endif %}
+{% if role == "영업임원" and c.status == "승인 대기" %}<form class="inline" method="post" action="/cases/{{ c.id }}/approve"><button>승인</button></form>
+<form class="inline" method="post" action="/cases/{{ c.id }}/reject"><input name="reason" placeholder="거절 사유(필수)" required size="30"><button>거절</button></form>{% endif %}
+{% if role == "회계" and c.status == "승인됨" %}<form class="inline" method="post" action="/cases/{{ c.id }}/execute"><button>지급 실행 요청 (실행 전 재검증)</button></form>{% endif %}
+<span class="muted">현재 역할: {{ role }}</span>
+</p></section>
+
+<section><h2>관계 근거 (쌍별) {{ real() }}</h2>
+{% if basis["관계 근거"] %}<table><tr><th>쌍</th><th>근거</th></tr>
+{% for k, v in basis["관계 근거"].items() %}<tr><td>{{ k }}</td><td>{{ v }} {{ grade("도출") }}<div class="muted">참조 마스터: {% for m in k.split("~") %}{{ m }} v{{ ver[m] }} {{ grade(ver_grade.get((m, ver[m]))) }}{% endfor %}</div></td></tr>{% endfor %}</table>
+{% else %}<p>단독 거래처: 대표자, 주소, 계좌 중 2개 이상 일치하는 다른 거래처가 없습니다.</p>{% endif %}
+<table><tr><th>구성원</th><th>마스터 버전</th><th>대표자</th><th>주소</th><th>관계 정보</th></tr>
+{% for m in basis["구성원"] %}<tr><td>{{ m["거래처"] }}</td><td>v{{ m["마스터 버전"] }} {{ grade(ver_grade.get((m["거래처"], m["마스터 버전"]))) }}</td><td>{{ m.get("대표자", "") }}</td><td>{{ m.get("주소", "") }}</td><td class="st {{ 'st-up' if m.get('관계 정보', '확인 필요').startswith('확인 필요') }}">{{ m.get("관계 정보", "확인 필요(마스터 미등록)") }}</td></tr>{% endfor %}</table>
+</section>
+
+<section><h2>합산 내역 {{ real() }}</h2>
+<table><tr><th>요청</th><th>거래처</th><th>정산월</th><th>지급월</th><th class="num">금액(원)</th><th>등급</th><th>비고</th></tr>
+{% for r in reqs %}<tr><td>{{ r.rebate_id }}</td><td>{{ r.agency_id }}</td><td>{{ r.period_ym }}</td>
+<td>{{ r.pay_month }} {{ grade(r.pay_month_grade) }}{% if r.pay_month_grade == "가정" %}<b>미확인</b>{% endif %}<div class="muted">{{ r.pay_month_reason }}</div></td>
+<td class="num">{{ r.amount|won }}</td><td>{{ grade(r.grade) }}</td><td class="muted">{{ r.note }}</td></tr>{% endfor %}
+<tr><td colspan="4">같은 지급월 기지급액(원본 지급 + 다른 사건에서 지급 완료된 요청)</td><td class="num">{{ c.paid|won }}</td><td>{{ grade("원본") }}{{ grade("도출") }}</td><td class="muted">{% for o in basis.get("지급 완료된 다른 요청", []) %}{{ o["요청"] }}({{ o["거래처"] }}) {{ o["금액"]|won }}원{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>
+<tr><th colspan="4">합계 (한도 2,000,000원 이하 전결, 초과 영업임원)</th><th class="num">{{ c.total|won }}</th><td>{{ grade("도출") }}</td><td>{{ c.route }}</td></tr>
+</table>
+<p><b>거래처별로만 봤을 때(대조 A):</b>
+{% for k, v in per_agency.items() %}{{ k.split("|")[0] }} {{ v }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+</section>
+
+<section><h2>지급계좌 {{ real() }}</h2>
+<p class="muted">가정: 지급계좌는 마스터 정산계좌입니다(원본에 지급계좌 자료 없음). 회수 입금계좌는 지급에 쓰지 않으며 번호를 표시하지 않습니다.</p>
+<table><tr><th>거래처</th><th>지급계좌(마스터 정산계좌)</th><th>확인</th><th>다른 회수 입금 관측</th></tr>
+{% for k, v in basis["지급계좌"].items() %}<tr><td>{{ k }}</td><td>{{ v["지급계좌(마스터 정산계좌)"] }} {{ grade("가정") }}</td>
+<td class="st {{ 'st-up' if v['확인'].startswith('확인 필요') else '' }}">{{ v["확인"] }}</td><td>{{ v["다른 입금 관측"]|join(", ") }}</td></tr>{% endfor %}</table>
+</section>
+
+{% if draft %}<section><h2>상신 문서 초안 {{ real() }}</h2>
+<p><b>사실 표</b>(코드 작성) {{ real() }}: 구성원 {{ basis["구성원"]|map(attribute="거래처")|join(", ") }}, 지급월 {{ c.pay_month }}, 합계 {{ c.total|won }}원, 경로 {{ c.route }}. 관계 근거는 위 표와 같습니다.</p>
+<p><b>서술 요약</b> <span class="badge {{ 'real' if draft.extractor.startswith('AI 사용') else 'mock' }}">{{ draft.extractor }}</span></p>
+<pre>{{ draft.text }}</pre></section>{% endif %}
+
+<section><h2>승인 기록과 실행 전 재검증 {{ real() }}</h2>
+{% if approvals %}<table><tr><th>승인</th><th>사건</th><th>역할</th><th>결정</th><th>시각</th><th>근거 해시</th><th>유효</th><th>무효 사유(달라진 근거)</th></tr>
+{% for a in approvals %}<tr><td>{{ a.id }}</td><td>{% if a.case_id != c.id %}<a href="/cases/{{ a.case_id }}">#{{ a.case_id }}</a>(병합 전){% else %}#{{ a.case_id }}{% endif %}</td><td>{{ a.role }}</td><td>{{ a.decision }}{% if a.reason %}: {{ a.reason }}{% endif %}</td><td>{{ a.decided_at }}</td>
+<td><code>{{ a.basis_hash[:12] }}</code></td><td>{{ "유효" if a.valid else ("-" if a.decision == "거절" else "무효") }}</td><td><pre>{{ a.invalid_reason }}</pre></td></tr>{% endfor %}</table>
+{% else %}<p>아직 승인 기록이 없습니다.</p>{% endif %}
+</section>
+
+<section><h2>이 사건의 작업 {{ real() }}</h2><table><tr><th>작업</th><th>유형</th><th>부서</th><th>상태</th><th>내용</th></tr>
+{% for t in tasks %}<tr><td>{{ t.id }}</td><td>{{ t.type }}</td><td>{{ t.dept }}</td><td class="st">{{ t.status }}{% if t.grade == "모의 회신" %} {{ grade("모의 회신") }}{% endif %}</td><td class="muted">{{ t.payload }}</td></tr>{% endfor %}</table>
+<p><a href="/tasks">작업함으로</a></p></section>
+
+<section><h2>이력 {{ real() }}</h2><table><tr><th>시각(가상)</th><th>주체</th><th>구분</th><th>행동</th><th>대상</th><th>내용</th></tr>
+{% for e in events %}<tr><td>{{ e.ts }}</td><td>{{ e.actor }}</td><td>{{ e.actor_type }}</td><td>{{ e.action }}</td><td>{{ e.ref }}</td><td><pre>{{ e.detail }}</pre></td></tr>{% endfor %}</table></section>
+{% endblock %}

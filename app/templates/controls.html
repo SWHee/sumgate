@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}대조{% endblock %}
+{% block body %}
+<section><h2>대조 A: 거래처별 판정 vs 관련자 합산 판정 {{ grade("원본") }}{{ real() }}</h2>
+<p>같은 미지급 40건({{ n_cases }}개 사건). 거래처별로 보면 상위 승인 대상 <b>{{ per_agency_up|length }}건</b>.
+관련자 합산으로 보면 상위 승인 대상 <b>{{ up|length }}개 그룹</b>:
+{% for c in up %}{{ c.group_key.replace("+", ", ") }} ({% for r in c.requests %}{{ r.rebate_id }} {{ r.amount|won }}{% if not loop.last %} + {% endif %}{% endfor %} = <b>{{ c.total|won }}원</b>){% endfor %}</p></section>
+
+<section><h2>대조 B: 입금계좌 대조 끔 vs 켬 {{ grade("원본") }}{{ real() }}</h2>
+<p class="muted">입금계좌 대조는 data_dictionary가 요구하는 기본 규칙입니다. 회수 입금계좌는 관계 판정 보강에만 쓰고 지급계좌로 쓰지 않습니다.</p>
+<table><tr><th>쌍</th><th>끔</th><th>켬</th></tr>
+{% for k in ev_on|sort %}{% if k[0] in ["D-011","D-024","D-037"] %}<tr><td>{{ k[0] }}~{{ k[1] }}</td><td>{{ ev_off[k] }}</td><td>{{ ev_on[k] }}</td></tr>{% endif %}{% endfor %}</table>
+<p>두 경우 모두 그룹은 D-011, D-024, D-037 하나입니다. 근거 문자열만 다릅니다.</p></section>
+
+<section><h2>대조 C: 음성 대조 {{ grade("원본") }}{{ real() }}</h2>
+<p>D-034와 D-041의 일치 항목: <b>{{ c_items|join(", ") }}</b> ({{ c_items|length }}개). 2개 미만이라 같은 그룹이 아닙니다.</p></section>
+
+<section><h2>대조 D: 승인 재사용 vs 실행 전 재검증 {{ grade("합성") }}{{ real() }}</h2>
+{% if d_rows %}<table><tr><th>승인</th><th>사건</th><th>재사용했다면</th><th>재검증 결과</th><th>달라진 근거</th></tr>
+{% for a in d_rows %}{% set old = a.basis_json|fromjson %}<tr><td>{{ a.id }}</td><td><a href="/cases/{{ a.case_id }}">#{{ a.case_id }}</a></td>
+<td>옛 근거로 지급 작업 {{ old["요청"]|length }}건 생성, 합계 {{ old["합계"]|won }}원</td><td class="st st-up">차단(승인 무효, 재상신)</td><td><pre>{{ a.invalid_reason }}</pre></td></tr>{% endfor %}</table>
+{% else %}<p class="muted">아직 재검증으로 막힌 승인이 없습니다. 시나리오 S2를 실행하면 나타납니다.</p>{% endif %}
+<form method="post" action="/settings/revalidate"><input type="hidden" name="on" value="{{ '0' if revalidate else '1' }}">
+실행 전 재검증: <b class="st {{ 'st-ok' if revalidate else 'st-up' }}">{{ "켬(기본)" if revalidate else "끔(대조군 D 시연 중)" }}</b>
+<button>{{ "끄기(대조군 D: 옛 승인으로 실행되는지 보기)" if revalidate else "다시 켜기" }}</button></form>
+<p class="muted">끄면 승인 후 근거가 바뀌어도 옛 승인으로 지급 작업이 만들어지고 이력에 "재검증 끔(대조군 D)"이 남습니다. 비교 시연용이며 기본값은 켬입니다.</p></section>
+
+<section><h2>대조 E: 소명 문서 구조화 정답 대비 {{ grade("합성") }}{{ real() }}</h2>
+<p class="muted">합성 소명 문서 3건(data_derived/docs/EXP-*), 정답 gold_E.json. 누락률 = 못 찾은 정답 / 정답, 오류율 = 정답에 없는 추출 / 추출.</p>
+<table><tr><th>문서</th><th>대체 추출기(규칙)</th><th>AI 추출</th></tr>
+{% for name, v in e_fb.items() %}<tr><td>{{ name }}</td><td>누락률 {{ v["누락률"] }}, 오류율 {{ v["오류율"] }} ({{ v["찾음"] }}/{{ v["정답 항목"] }} 찾음, 오추출 {{ v["오추출"] }})</td>
+<td>{% if e_ai.get(name) %}누락률 {{ e_ai[name]["누락률"] }}, 오류율 {{ e_ai[name]["오류율"] }} ({{ e_ai[name]["추출기"] }}){% else %}<b>미측정</b>{% endif %}</td></tr>{% endfor %}</table>
+<p>{% if has_key %}<form method="post" action="/controls/e/ai"><button>AI 추출 측정 실행 (API 호출 3회)</button></form>{% else %}API 키가 없어 AI 추출은 미측정입니다. 성과로 주장하지 않습니다.{% endif %}</p></section>
+
+<section><h2>과거 관찰: 그룹 월 합계 (2026-01~05) {{ grade("원본") }}{{ real() }}</h2>
+<table><tr><th>정산월</th><th class="num">그룹 합계(원)</th><th>건수</th><th>결재자</th><th>200만원 초과</th><th>상태</th></tr>
+{% for o in obs %}<tr><td>{{ o.period_ym }}</td><td class="num">{{ o.total|won }}</td><td>{{ o.count }}</td><td>{{ o.approver|join(", ") }}</td><td>{{ "예" if o.over_limit else "아니오" }}</td><td><b>{{ o.status }}</b></td></tr>{% endfor %}
+<tr><th>5개월 합계</th><th class="num">{{ obs_sum|won }}</th><td colspan="4"></td></tr></table>
+<p>그룹 합산이 매월 200만원을 넘었는데 영업지원팀 승인으로 지급된 기록이 관찰됩니다. 승인 당시 마스터 이력이 없어 판정할 수 없으며, 이 기록은 판정 대상이 아닙니다.
+이 금액은 정당하게 지급된 돈일 수 있고 절감액이나 성과가 아닙니다.</p></section>
+{% endblock %}

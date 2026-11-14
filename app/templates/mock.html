@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}모의 입력{% endblock %}
+{% block body %}
+{% set dis = "" if role == "모의 외부" else "disabled" %}
+{% if dis %}<div class="msg">모의 입력은 모의 외부 역할에서 합니다. 상단에서 역할을 바꾸세요.</div>{% endif %}
+<section><h2>대리점 회신 문서 (소명 회신, 정정 신고) {{ mock() }}</h2>
+<p class="muted">예시 문서(합성, data_derived/docs): {% for n in samples %}<a href="/mock?sample={{ n }}">{{ n }}</a>{% if not loop.last %} | {% endif %}{% endfor %}</p>
+<form method="post" action="/mock/doc">
+<p>종류 <select name="kind"><option {{ "selected" if kind == "소명 회신" }}>소명 회신</option><option {{ "selected" if kind == "정정 신고" }}>정정 신고</option></select>
+거래처 <input name="agency_id" value="{{ agency }}" size="7" required>
+사건 번호(소명이면) <input name="case_id" value="{{ group_case if kind == '소명 회신' and sample else '' }}" size="5">
+<input type="hidden" name="source_ref" value="{{ 'data_derived/docs/' + sample if sample else '' }}"></p>
+<textarea name="text" rows="8" required>{{ text }}</textarea>
+<p><button {{ dis }}>문서 접수 (AI 구조화 후 담당자 확인 대기)</button> {{ grade("합성") }}{{ grade("모의 회신") }}</p></form>
+</section>
+<section><h2>요청 금액 정정 {{ mock() }}</h2>
+<form method="post" action="/mock/amount">{% set a = amount_cor[0] %}
+요청 <input name="rebate_id" value="{{ a.rebate_id }}" size="10"> 새 금액 <input name="amount" value="{{ a.new_amount }}" size="10">
+사유 <input name="reason" value="{{ a.reason }}" size="50"><input type="hidden" name="ref" value="{{ a.correction_id }}">
+<button {{ dis }}>정정 반영</button> {{ grade("합성") }}</form></section>
+<section><h2>합성 정산 요청 접수 {{ mock() }}</h2>
+<form method="post" action="/mock/request">{% set r = syn_req[0] %}
+요청 <input name="rebate_id" value="{{ r.rebate_id }}" size="12"> 거래처 <input name="agency_id" value="{{ r.agency_id }}" size="6">
+정산월 <input name="period_ym" value="{{ r.period_ym }}" size="7"> 금액 <input name="amount" value="{{ r.amount }}" size="9">
+사유 <input name="reason" value="{{ r.reason }}" size="40"> <button {{ dis }}>접수</button> {{ grade("합성") }}
+<div class="muted">예시 적용 시점: {{ r.applied_at }} (가상 시각을 먼저 옮기세요)</div></form></section>
+<section><h2>가상 시각 이동 {{ mock() }}</h2>
+<form method="post" action="/mock/clock"><input name="ts" value="2026-07-03 17:00" size="17"> <button {{ dis }}>이동</button>
+<span class="muted">가정: 각 회차 승인 마감은 그 달 3일 17:00, 지급 실행일은 6일. 마감까지 승인되지 않은 사건만 다음 회차로 이동합니다(사유: 승인 지연).</span></form></section>
+<section><h2>은행 회신과 지급계좌 회신 {{ mock() }}</h2><p>작업함의 각 작업 옆 버튼으로 넣습니다. <a href="/tasks">작업함</a></p></section>
+{% endblock %}
