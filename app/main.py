@@ -1,4 +1,4 @@
-"""SumGate 웹 화면. 서버 렌더링 HTML, 목록 화면은 5초 주기 재조회(웹소켓 없음)."""
+"""모아봄(Moabom) 웹 화면. 서버 렌더링 HTML, 목록 화면은 5초 주기 재조회(웹소켓 없음)."""
 import json
 from contextlib import asynccontextmanager
 from urllib.parse import quote, unquote
@@ -35,7 +35,7 @@ async def lifespan(_app):
     yield
 
 
-app = FastAPI(title="SumGate", lifespan=lifespan)
+app = FastAPI(title="모아봄 Moabom", lifespan=lifespan)
 T = Jinja2Templates(directory=str(ROOT / "app" / "templates"))
 T.env.filters["won"] = lambda v: f"{int(v):,}"
 T.env.filters["fromjson"] = json.loads
@@ -73,7 +73,7 @@ def back(req: Request, msg: str = "", to: str | None = None):
 
 def deny(req: Request, msg: str):
     url = escape((req.headers.get("referer") or "/").split("?msg=")[0].split("&msg=")[0])
-    return HTMLResponse(f'<!doctype html><meta charset="utf-8"><title>SumGate 403</title><p>403 처리하지 않음: '
+    return HTMLResponse(f'<!doctype html><meta charset="utf-8"><title>모아봄 403</title><p>403 처리하지 않음: '
                         f'{escape(msg)}</p><p>상단에서 역할을 바꾼 뒤 다시 하세요. <a href="{url}">돌아가기</a></p>',
                         status_code=403)
 

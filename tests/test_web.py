@@ -11,7 +11,7 @@ def test_screens_and_s1_by_http(db_url, monkeypatch):
         for p in ["/", "/tasks", "/mock", "/docs", "/controls", "/log", "/scenarios", "/cases/1"]:
             assert cl.get(p).status_code == 200, p
         q = cl.get("/").text
-        assert "SumGate" in q and "실제 작동" in q and "미확인" in q
+        assert "모아봄 Moabom" in q and "실제 작동" in q and "미확인" in q
         gid = int(re.search(r'href="/cases/(\d+)">#\d+</a></td>\s*<td>D-011, D-024, D-037', q).group(1))
         assert "3,888,097" in q
 

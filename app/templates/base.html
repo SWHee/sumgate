@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 {% if refresh %}<meta http-equiv="refresh" content="5">{% endif %}
-<title>SumGate {% block title %}{% endblock %}</title>
+<title>모아봄 {% block title %}{% endblock %}</title>
 <style>
 body{font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;margin:0;background:#f6f7f9;color:#1d2330;font-size:15px}
 header{background:#1d2330;color:#fff;padding:10px 16px}
@@ -44,7 +44,7 @@ textarea{width:100%;font-family:inherit}
 {% macro grade(g) %}{% if g == "가정" %}<span class="g g-가정">가정</span>{% elif g == "모의 회신" %}<span class="g g-모의회신">모의 회신</span>{% elif g %}<span class="g g-{{ g }}">{{ g }}</span>{% endif %}{% endmacro %}
 {% macro real() %}<span class="badge real">실제 작동</span>{% endmacro %}
 {% macro mock() %}<span class="badge mock">모의 처리</span>{% endmacro %}
-<header><h1>SumGate</h1><span class="sub">판매장려금 지급 승인 게이트</span>
+<header><h1>모아봄 Moabom</h1><span class="sub">판매장려금 지급 승인 게이트</span>
 <span style="float:right">가상 시각 <b>{{ clock }}</b> |
 역할:
 {% for r in roles %}<a href="/role?r={{ r }}" style="color:{% if r == role %}#ffd54f;font-weight:bold{% else %}#c5cbd6{% endif %};margin-left:6px">{{ r }}</a>{% endfor %}
