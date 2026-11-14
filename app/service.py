@@ -708,7 +708,9 @@ def review_items(ext: dict, decisions: dict | None) -> tuple[dict, dict]:
                 raise ValueError(f"알 수 없는 결정: {dec}")
             if dec == "수정" and not val:
                 raise ValueError(f"{ai.FIELDS[k]} {i + 1}번 수정 값이 비어 있음")
-            if dec == "수정" and val == it["value"]:
+            if dec in ("채택", "수정") and val and val != it["value"]:
+                dec = "수정"  # 값을 고치고 결정을 채택으로 둔 경우도 수정으로 기록한다
+            elif dec == "수정" and val == it["value"]:
                 dec = "채택"
             diff[dec] += 1
             if dec == "기각":

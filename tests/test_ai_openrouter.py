@@ -98,7 +98,7 @@ def test_openrouter_unquoted_dropped(orouter):
 def test_labels_fit_db_columns():
     # Doc.extractor는 String(50). Postgres에서는 넘으면 커밋이 실패한다
     for lb in [ai.OR_LABEL, ai.AI_LABEL, f"{ai.FALLBACK_LABEL}, AI 호출 실패 응답 중단(content_filter)",
-               "AI 미사용(대체 작성), AI 서술 금지 표현(" + ai.FORBIDDEN[0] + ")"]:
+               "AI 미사용(대체 작성), AI 서술에 금지 표현 있음"]:
         assert len(lb) <= 50, lb
 
 
@@ -118,7 +118,7 @@ def test_draft_openrouter_ok(orouter):
 def test_draft_forbidden_word_replaced(orouter, w):
     orouter["reply"] = lambda: _resp(content=f"이 그룹은 {w} 정황이 있습니다.")
     txt, label = ai.draft(FACTS)
-    assert w not in txt and label == f"AI 미사용(대체 작성), AI 서술 금지 표현({w})"
+    assert w not in txt and label == "AI 미사용(대체 작성), AI 서술에 금지 표현 있음" and w not in label
 
 
 # 접수 이력, 사람 확인, 후속 변화 ----------------------------------------
@@ -145,17 +145,19 @@ def test_review_adopt_edit_reject_and_effects(s, orouter):
     did = sv.receive_doc(s, "소명 회신", "D-011", TEXT, case_id=c.id)
     assert gcase(s).status == "거절됨"  # 확인 전에는 판정에 쓰이지 않는다
     sv.confirm_doc(s, did, decisions={"claims:0": ("수정", "D-011 사업장 이전(2026-07-01)"),
-                                      "unknowns:0": ("기각", ""), "evidence:0": ("채택", "무시됨")})
+                                      "unknowns:0": ("기각", ""), "evidence:0": ("채택", "임대차 계약서"),
+                                      "agencies:0": ("채택", "D-011(본점)")})
     ext = json.loads(s.get(Doc, did).extraction_json)
-    assert ext["review"]["채택"] == 3 and ext["review"]["수정"] == 1 and ext["review"]["기각"] == 1
+    assert ext["review"]["채택"] == 2 and ext["review"]["수정"] == 2 and ext["review"]["기각"] == 1
     assert ext["confirmed"]["unknowns"] == []
     assert ext["confirmed"]["claims"][0]["value"] == "D-011 사업장 이전(2026-07-01)"
     assert ext["confirmed"]["evidence"][0]["value"] == "임대차 계약서"  # 채택은 AI 값 그대로
     assert ext["fields"]["claims"][0]["value"] == "D-011 사업장 이전"  # AI 제안 원본은 남는다
     ev = s.scalars(select(EventLog).where(EventLog.action == "AI 제안 검토")).one()
     assert ev.detail.splitlines() == [
-        f"추출 주체 {ai.OR_LABEL}. 채택 3, 수정 1, 기각 1",
+        f"추출 주체 {ai.OR_LABEL}. 채택 2, 수정 2, 기각 1",
         "주장 수정: D-011 사업장 이전 -> D-011 사업장 이전(2026-07-01)",
+        "대상 거래처 수정: D-011 -> D-011(본점)",  # 값을 고치고 채택으로 둬도 수정으로 기록
         "미확인 항목 기각: 대표자 변경"]
     # 후속 변화: 거절된 사건이 재상신 가능 상태로
     assert gcase(s).status == "상위 승인 필요"

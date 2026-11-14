@@ -235,7 +235,7 @@ def draft(facts: dict, use_ai: bool = True) -> tuple[str, str]:
             bad = [w for w in FORBIDDEN if txt and w in txt]
             if txt and not bad:
                 return txt, _ok_label()
-            label += f", AI 서술 금지 표현({bad[0]})" if bad else ", AI 응답 비어 있음"
+            label += ", AI 서술에 금지 표현 있음" if bad else ", AI 응답 비어 있음"  # 금지어 자체는 화면에 쓰지 않는다
         except AIError as e:
             label += f", {e}" if str(e) == "AI 응답 거절" else f", AI 호출 실패 {e}"
         except Exception as e:  # 추출과 같이 대체 작성으로 처리하고 이유를 라벨에 남긴다(R10)
