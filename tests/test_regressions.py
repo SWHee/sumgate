@@ -220,7 +220,7 @@ NEED = {"/bulk/approve-support": "영업지원", "/bulk/execute": "회계", "/se
         "/cases/{cid}/approve": "영업지원 영업임원", "/cases/{cid}/reject": "영업임원", "/cases/{cid}/submit": "영업지원",
         "/cases/{cid}/execute": "회계", "/tasks/{tid}/account-reply": "모의 외부", "/tasks/{tid}/recheck": "영업지원", "/tasks/{tid}/bank": "모의 외부",
         "/bank/all": "모의 외부", "/tasks/{tid}/retry": "회계", "/mock/doc": "모의 외부", "/mock/amount": "모의 외부",
-        "/mock/request": "모의 외부", "/mock/clock": "모의 외부", "/docs/{did}/confirm": "영업지원"}
+        "/mock/request": "모의 외부", "/mock/clock": "모의 외부", "/papers/{did}/confirm": "영업지원"}
 
 
 def test_regress_a1_every_post_route_is_role_checked(db_url, monkeypatch):

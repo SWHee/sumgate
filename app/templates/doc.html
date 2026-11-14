@@ -14,7 +14,7 @@
 {% if ext["dropped"] %}<h3>근거 없음(버림)</h3><table>{% for it in ext["dropped"] %}<tr><td>{{ fields[it.field] }}</td><td>{{ it.value }}</td><td>"{{ it.quote }}"</td><td>{{ it.why }}</td></tr>{% endfor %}</table>{% endif %}
 </section>{% endif %}
 {% if d.status == "확인 대기" and role == "영업지원" %}<section><h2>담당자 확인 {{ real() }}</h2>
-<form method="post" action="/docs/{{ d.id }}/confirm">
+<form method="post" action="/papers/{{ d.id }}/confirm">
 {% if d.kind == "정정 신고" %}
 <p>정정 사실 확정: 거래처 <input name="agency_id" value="{{ d.agency_id }}" size="7">
 항목 <select name="field">{% for f in ["주소", "대표자", "정산계좌"] %}<option {{ "selected" if proposal.field == f }}>{{ f }}</option>{% endfor %}</select>

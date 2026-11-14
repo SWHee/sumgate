@@ -35,7 +35,7 @@ async def lifespan(_app):
     yield
 
 
-app = FastAPI(title="모아봄 Moabom", lifespan=lifespan)
+app = FastAPI(title="모아봄 Moabom", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 T = Jinja2Templates(directory=str(ROOT / "app" / "templates"))
 T.env.filters["won"] = lambda v: f"{int(v):,}"
 T.env.filters["fromjson"] = json.loads
@@ -258,7 +258,7 @@ def mock_doc(req: Request, kind: str = Form(...), agency_id: str = Form(...), te
             did = f(s)
         except ValueError as e:
             return back(req, f"처리하지 않음: {e}")
-    return RedirectResponse(f"/docs/{did}", status_code=303)
+    return RedirectResponse(f"/papers/{did}", status_code=303)
 
 
 @app.post("/mock/amount")
@@ -296,18 +296,18 @@ def highlight(text: str, ext: dict) -> Markup:
     return Markup("").join(out)
 
 
-@app.get("/docs", response_class=HTMLResponse)
+@app.get("/papers", response_class=HTMLResponse)
 def docs(req: Request):
     with SM() as s:
         return page(req, "docs.html", s, docs=list(s.scalars(select(Doc).order_by(Doc.id.desc()))))
 
 
-@app.get("/docs/{did}", response_class=HTMLResponse)
+@app.get("/papers/{did}", response_class=HTMLResponse)
 def doc_detail(req: Request, did: int):
     with SM() as s:
         d = s.get(Doc, did)
         if not d:
-            return back(req, "문서 없음", "/docs")
+            return back(req, "문서 없음", "/papers")
         ext = json.loads(d.extraction_json or "{}")
         proposal = {}
         if d.kind == "정정 신고":
@@ -317,7 +317,7 @@ def doc_detail(req: Request, did: int):
                     proposal=proposal)
 
 
-@app.post("/docs/{did}/confirm")
+@app.post("/papers/{did}/confirm")
 def doc_confirm(req: Request, did: int, agency_id: str = Form(""), field: str = Form("주소"), value: str = Form("")):
     corr = {"agency_id": agency_id.strip(), "field": field, "value": value.strip()} if value.strip() else None
     return forbid(req, "영업지원") or act(

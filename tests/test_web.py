@@ -8,7 +8,7 @@ def test_screens_and_s1_by_http(db_url, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", db_url)
     from app.main import app
     with TestClient(app) as cl:
-        for p in ["/", "/tasks", "/mock", "/docs", "/controls", "/log", "/scenarios", "/cases/1"]:
+        for p in ["/cases/1"]:  # 메뉴 화면은 test_menu_screens_show_title_and_content가 내용으로 검사
             assert cl.get(p).status_code == 200, p
         q = cl.get("/").text
         assert "모아봄 Moabom" in q and "실제 작동" in q and "미확인" in q
@@ -76,9 +76,9 @@ def test_s3_by_buttons(db_url, monkeypatch):
         text = cl.get("/mock?sample=EXP-01_D-011.txt").text
         doc_text = re.search(r'<textarea name="text" rows="8" required>(.*?)</textarea>', text, re.S).group(1)
         r = cl.post("/mock/doc", data={"kind": "소명 회신", "agency_id": "D-011", "text": doc_text, "case_id": str(gid)})
-        did = int(re.search(r"/docs/(\d+)", str(r.url)).group(1))
+        did = int(re.search(r"/papers/(\d+)", str(r.url)).group(1))
         _role(cl, "영업지원")
-        cl.post(f"/docs/{did}/confirm")
+        cl.post(f"/papers/{did}/confirm")
         assert "상위 승인 필요" in cl.get(f"/cases/{gid}").text
         cl.post(f"/cases/{gid}/submit")
         _role(cl, "모의 외부")
@@ -116,10 +116,10 @@ def test_s2_by_buttons(db_url, monkeypatch):
         text = cl.get("/mock?sample=COR-01_D-024.txt").text
         doc_text = re.search(r'<textarea name="text" rows="8" required>(.*?)</textarea>', text, re.S).group(1)
         r = cl.post("/mock/doc", data={"kind": "정정 신고", "agency_id": "D-024", "text": doc_text})
-        did = int(re.search(r"/docs/(\d+)", str(r.url)).group(1))
+        did = int(re.search(r"/papers/(\d+)", str(r.url)).group(1))
         _role(cl, "영업지원")
-        assert 'value="성남시 판교로 45"' in cl.get(f"/docs/{did}").text
-        cl.post(f"/docs/{did}/confirm", data={"agency_id": "D-024", "field": "주소", "value": "성남시 판교로 45"})
+        assert 'value="성남시 판교로 45"' in cl.get(f"/papers/{did}").text
+        cl.post(f"/papers/{did}/confirm", data={"agency_id": "D-024", "field": "주소", "value": "성남시 판교로 45"})
         _role(cl, "회계")
         assert "재검증 차단" in cl.post(f"/cases/{gid}/execute").text
         assert "주소: 성남시 상공로 128 -&gt; 성남시 판교로 45" in cl.get(f"/cases/{gid}").text
@@ -132,3 +132,32 @@ def test_s2_by_buttons(db_url, monkeypatch):
         _role(cl, "회계")
         assert "재검증 차단" in cl.post(f"/cases/{gid}/execute").text
         assert "차단(승인 무효, 재상신)" in cl.get("/controls").text
+
+
+# 상단 메뉴 주소를 열면 그 화면의 제목과 핵심 내용이 나와야 한다(상태 코드만 보면 /docs가 Swagger를 열어도 통과했다)
+MENU = {
+    "대기열": ("대기열", "승인 사건 대기열"),
+    "작업함": ("작업함", "작업 목록"),
+    "모의 입력": ("모의 입력", "대리점 회신 문서"),
+    "문서": ("문서", "문서 목록"),
+    "대조와 과거 관찰": ("대조", "대조 A"),
+    "이력": ("이력", "처리 이력"),
+    "시나리오 실행과 초기화": ("시나리오", "시나리오 실행과 초기화"),
+}
+
+
+def test_menu_screens_show_title_and_content(db_url, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", db_url)
+    from app.main import app
+    with TestClient(app) as cl:
+        nav = cl.get("/").text.split("<nav>")[1].split("</nav>")[0]
+        links = dict((t, h) for h, t in re.findall(r'<a href="([^"]+)">([^<]+)</a>', nav))
+        assert set(links) == set(MENU)
+        for label, (title, body) in MENU.items():
+            html = cl.get(links[label]).text
+            assert f"<title>모아봄 {title}</title>" in html, label
+            assert body in html and "Swagger" not in html, label
+        # 업무 문서 목록은 /papers, FastAPI 기본 문서 경로는 꺼져 있다
+        assert links["문서"] == "/papers"
+        for p in ["/docs", "/redoc", "/openapi.json"]:
+            assert cl.get(p).status_code == 404, p
