@@ -54,7 +54,14 @@ uv run pytest -q                 # 원본 수치, 경계값, 실패 조건 7개,
 | `ANTHROPIC_API_KEY` | 소명/정정 문서 구조화와 상신 서술 초안 (`claude-opus-5-5`). 서버에서만 읽는다 | 규칙 기반 대체 추출기, 화면에 `AI 미사용(대체 추출)` |
 | `DATABASE_URL` | 상태 저장 DB. 배포 시 플랫폼이 주입하는 Postgres 주소(직접 등록하지 않음). `postgres://`, `postgresql://`는 앱이 psycopg 드라이버 주소로 바꿔 연결한다 | `app/w07.db` 로컬 SQLite |
 
-키는 코드나 저장소에 넣지 않는다. `ANTHROPIC_API_KEY`는 배포 전에 사용자가 `axhub env`로 등록한다.
+키는 코드나 저장소에 넣지 않는다. `ANTHROPIC_API_KEY`는 사용자가 Claude Code 밖의 별도 터미널에서 직접 등록한다.
+키를 화면과 명령 기록에 남기지 않도록 `read -rs`로 입력받아 파이프로 넘긴다(입력 후 Enter):
+
+```bash
+read -rs K && printf '%s' "$K" | ~/.axhub/bin/axhub env set ANTHROPIC_API_KEY --app moabom --secret --stage runtime --from-stdin; unset K
+```
+
+환경변수는 **다시 배포해야 적용된다**(실행 중인 앱에 자동 반영되지 않음). 등록 뒤 프로젝트 폴더에서 `~/.axhub/bin/axhub deploy push --app moabom --execute --wait`로 재배포한다.
 
 ## 5. Docker
 
@@ -64,7 +71,7 @@ docker run -p 8000:8000 -e DATABASE_URL=... -e ANTHROPIC_API_KEY=... sumgate
 ```
 
 컨테이너 볼륨에 상태를 두지 않는다. `DATABASE_URL`을 비우면 컨테이너 안 SQLite를 쓰며 재시작하면 사라진다(시연용).
-시작 명령은 `PORT` 환경변수가 있으면 그 포트, 없으면 8000에서 듣는다.
+시작 명령은 `PORT` 환경변수가 있으면 그 포트, 없으면 8000에서 듣는다. AXHub는 Docker 앱에 `PORT`를 항상 넣고 값은 `axhub.yaml`의 `runtime.port`(8000)를 따른다. 첫 배포 로그에서 `Uvicorn running on http://0.0.0.0:8000`을 확인했다.
 
 ### Postgres로 로컬 실행과 테스트
 
@@ -90,8 +97,12 @@ docker rm -fv sumgate-app sumgate-pg && docker network rm sumgate-net
 
 ## 5-1. AXHub 배포 설정 (`axhub.yaml`)
 
+- 앱: `moabom`(테넌트 lounge, 공개 범위 「누구나」), 주소 https://moabom-au27.axhub.app (lounge는 주소 뒤 4자리를 서버가 정한다).
+- 코드 저장 위치: AXHub 저장소(git 원격 `origin`)로 푸시하면 배포가 시작된다. GitHub 공개 사본은 원격 `github`(https://github.com/SWHee/sumgate)에 같은 커밋을 올린다.
+- 헬스 체크: 별도 경로 없이 `/`를 쓴다. 플랫폼이 5초마다 `GET /`를 보내고 200을 받는 것을 첫 배포 로그로 확인했다(시작 60초, 켜진 뒤 3초 안 응답 조건).
+
 - `build.framework: docker`로 이 Dockerfile을 쓴다. `runtime.port: 8000`은 Dockerfile의 기본 포트와 같다.
-- `database: engine: postgres`를 선언하면 배포 환경에 Postgres DB가 생기고 `DATABASE_URL`(과 `DIRECT_DATABASE_URL`)이 런타임에 주입된다. 앱은 `DATABASE_URL`만 읽는다.
+- `database: engine: postgres`를 선언하면 배포 환경에 Postgres DB가 생기고 `DATABASE_URL`(과 `DIRECT_DATABASE_URL`)이 런타임에 주입된다. 앱은 `DATABASE_URL`만 읽는다. 주입 값은 `axhub env list`에 보이지 않는다. 첫 배포 뒤 앱 DB의 `public` 스키마에 앱 테이블 9개(`case`, `approval`, `task` 등)가 만들어진 것으로 연결을 확인했다.
 - 상태(사건, 승인, 작업, 이력)는 모두 이 DB에 있어 앱이 재시작되어도 유지된다. 시작할 때 적재 완료 표식이 있으면 원본을 다시 적재하지 않는다.
 - **스키마가 바뀐 새 버전을 배포하면 상태를 초기화한다.** 적재 완료 표식에 테이블과 인덱스 정의의 해시를 기록하고, 시작할 때 표식이 다르거나 읽을 수 없으면 테이블을 모두 지우고 다시 만든 뒤 원본을 다시 적재한다(시연 앱이라 상태 초기화를 허용). 테이블 정의가 같은 새 버전은 상태를 유지한다.
 
@@ -124,4 +135,4 @@ AI 추출 결과는 담당자가 확인하기 전에는 판정에 쓰이지 않�
 - 현재 업무 흐름(영업지원 검토, 임원 승인, 회계 지급)은 W07 교육용 가정이다.
 - 은행 회신 전의 지급 작업은 취소할 수 있다고 단순화했다. 같은 그룹과 지급월에 새 요청이 들어오면 회신 전 작업을 취소하고 합산을 다시 판정한다. 실제로는 은행에 이미 전송된 지급을 회수하거나 정지하는 절차가 따로 필요하다.
 - 회차 지급 집계는 취소된 작업을 빼고 계산하며, 취소 이력은 작업함에 따로 표시한다.
-- 상태 저장 DB는 SQLite로만 검증했다. AXHub DB의 드라이버 의존성은 DB 종류가 정해진 뒤 추가한다.
+- 상태 저장 DB는 로컬 SQLite, 로컬 Postgres(테스트), AXHub Postgres(배포)에서 확인했다.
