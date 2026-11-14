@@ -51,14 +51,15 @@ uv run pytest -q                 # 원본 수치, 경계값, 실패 조건 7개,
 
 | 변수 | 용도 | 비워 두면 |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | 소명/정정 문서 구조화와 상신 서술 초안 (`claude-opus-5-5`). 서버에서만 읽는다 | 규칙 기반 대체 추출기, 화면에 `AI 미사용(대체 추출)` |
+| `OPENROUTER_API_KEY` | 소명/정정 문서 구조화와 상신 서술 초안. OpenRouter chat completions(`anthropic/claude-haiku-5.5`, JSON schema 구조화 출력, 시간 제한 30초). 서버에서만 읽는다 | 아래 `ANTHROPIC_API_KEY`, 그것도 없으면 규칙 기반 대체 추출기(화면 `키 미등록: 대체 추출`) |
+| `ANTHROPIC_API_KEY` | 선택. Anthropic 직접 호출(`claude-opus-5-5`). `OPENROUTER_API_KEY`가 있으면 쓰지 않는다. 값이 `sk-or-`로 시작하면 OpenRouter 키로 보고 OpenRouter로 호출한다 | 규칙 기반 대체 추출기 |
 | `DATABASE_URL` | 상태 저장 DB. 배포 시 플랫폼이 주입하는 Postgres 주소(직접 등록하지 않음). `postgres://`, `postgresql://`는 앱이 psycopg 드라이버 주소로 바꿔 연결한다 | `app/w07.db` 로컬 SQLite |
 
-키는 코드나 저장소에 넣지 않는다. `ANTHROPIC_API_KEY`는 사용자가 Claude Code 밖의 별도 터미널에서 직접 등록한다.
+키는 코드나 저장소에 넣지 않는다. `OPENROUTER_API_KEY`는 사용자가 Claude Code 밖의 별도 터미널에서 직접 등록한다.
 키를 화면과 명령 기록에 남기지 않도록 `read -rs`로 입력받아 파이프로 넘긴다(입력 후 Enter):
 
 ```bash
-read -rs K && printf '%s' "$K" | ~/.axhub/bin/axhub env set ANTHROPIC_API_KEY --app moabom --secret --stage runtime --from-stdin; unset K
+read -rs K && printf '%s' "$K" | ~/.axhub/bin/axhub env set OPENROUTER_API_KEY --app moabom --secret --stage runtime --from-stdin; unset K
 ```
 
 환경변수는 **다시 배포해야 적용된다**(실행 중인 앱에 자동 반영되지 않음). 등록 뒤 프로젝트 폴더에서 `~/.axhub/bin/axhub deploy push --app moabom --execute --wait`로 재배포한다.
@@ -67,7 +68,7 @@ read -rs K && printf '%s' "$K" | ~/.axhub/bin/axhub env set ANTHROPIC_API_KEY --
 
 ```bash
 docker build -t sumgate .
-docker run -p 8000:8000 -e DATABASE_URL=... -e ANTHROPIC_API_KEY=... sumgate
+docker run -p 8000:8000 -e DATABASE_URL=... -e OPENROUTER_API_KEY=... sumgate
 ```
 
 컨테이너 볼륨에 상태를 두지 않는다. `DATABASE_URL`을 비우면 컨테이너 안 SQLite를 쓰며 재시작하면 사라진다(시연용).
@@ -121,6 +122,11 @@ docker rm -fv sumgate-app sumgate-pg && docker network rm sumgate-net
 
 AI는 문서 구조화와 상신 서술 초안만 맡는다. 관계 판정, 합산, 승인 경로, 승인 여부는 코드와 사람이 정한다.
 AI 추출 결과는 담당자가 확인하기 전에는 판정에 쓰이지 않는다.
+
+AI 흐름(`/papers`): 문서 접수 시 AI가 주장, 증빙, 적용일, 대상 거래처, 미확인 항목을 원문 인용과 함께 제안한다. 원문에 없는 인용은 코드가 `근거 없음`으로 버린다.
+영업지원 담당자가 항목마다 채택, 수정, 기각을 고르고 확인하면 확정한 항목만 저장된다. 이력에는 추출 주체(제공사와 모델 또는 대체 추출), 소요 시간, 인용 검증 결과(통과, 근거 없음), AI 제안과 사람 확정의 차이(채택, 수정, 기각 건수와 수정 전후 값)가 남는다.
+확인 뒤 바뀐 것(예: 사건 재상신 가능, 마스터 새 버전, 근거 변경)은 문서 화면과 사건 화면에 한 줄로 표시한다.
+AI 호출이 시간 초과, HTTP 오류, 깨진 응답이면 대체 추출로 처리하고 라벨에 사유(예: `AI 호출 실패 HTTP 401`)만 표시한다. 상신 서술에 확정 판단 표현이 있으면 코드가 대체 초안으로 바꾸고 사유를 표시한다. 현재 AI 경로는 상단 안내 줄과 대조 화면에 표시하며 키 값은 표시하지 않는다.
 
 ## 7. 데이터 등급
 

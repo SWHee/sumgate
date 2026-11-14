@@ -3,23 +3,33 @@
 {% block body %}
 <section><h2>문서 #{{ d.id }}: {{ d.kind }} ({{ d.agency_id }}) {{ grade(d.grade) }}{{ mock() }}</h2>
 <p>상태 <b>{{ d.status }}</b>{% if d.confirmed_by %}, 확인자 {{ d.confirmed_by }}{% endif %}.
-추출기 <span class="badge {{ 'real' if d.extractor.startswith('AI 사용') else 'mock' }}">{{ d.extractor }}</span></p>
+추출 주체 <span class="badge {{ 'real' if d.extractor.startswith('AI 사용') else 'mock' }}">{{ d.extractor }}</span>{% if ext.get("ms") is not none %}, 소요 {{ ext["ms"] }}ms{% endif %}{% if ext.get("fields") %}, 인용 검증 통과 {{ ext["fields"].values()|map("length")|sum }}건, 근거 없음으로 버림 {{ ext["dropped"]|length }}건{% endif %}</p>
+{% if ext.get("effects") %}<p class="msg"><b>이 문서 확인으로 바뀐 것:</b> {{ ext["effects"]|join(", ") }}</p>{% endif %}
+{% if ext.get("review") %}<p><b>AI 제안 대비 담당자 확정:</b> 채택 {{ ext["review"]["채택"] }}, 수정 {{ ext["review"]["수정"] }}, 기각 {{ ext["review"]["기각"] }}</p>
+{% if ext["review"]["변경"] %}<pre>{{ ext["review"]["변경"]|join("\n") }}</pre>{% endif %}{% endif %}
 <p class="muted">AI 추출 결과는 담당자가 확인하기 전에는 어떤 판정에도 쓰이지 않습니다. AI는 관계, 합산, 승인 경로를 판단하지 않습니다.</p>
 <h3>원문 (인용 위치 표시)</h3><pre>{{ marked }}</pre>
 </section>
-{% if ext.get("fields") %}<section><h2>구조화 결과 {{ real() }}</h2>
-<table><tr><th>항목</th><th>값</th><th>원문 인용</th><th>위치</th></tr>
-{% for k, label in fields.items() %}{% for it in ext["fields"][k] %}<tr><td>{{ label }}</td><td>{{ it.value }}</td><td>"{{ it.quote }}"</td><td>{{ it.start }}~{{ it.end }}</td></tr>{% else %}<tr><td>{{ label }}</td><td colspan="3" class="muted">없음</td></tr>{% endfor %}{% endfor %}
+{% if ext.get("fields") %}<section><h2>{{ "확정 결과" if ext.get("confirmed") else "AI 제안(확인 전)" }} {{ real() }}</h2>
+{% set editable = d.status == "확인 대기" and role == "영업지원" %}
+{% if editable %}<form method="post" action="/papers/{{ d.id }}/confirm" id="confirm"></form>
+<p class="muted">항목마다 채택, 수정, 기각을 고르세요. 확인 버튼을 누르면 확정한 항목만 저장되고, 제안과 확정의 차이가 이력에 남습니다.</p>{% endif %}
+<table><tr><th>항목</th><th>값</th><th>원문 인용</th><th>위치</th>{% if editable %}<th>담당자 결정</th>{% elif ext.get("confirmed") %}<th>결정</th>{% endif %}</tr>
+{% for k, label in fields.items() %}{% set rows = ext["confirmed"][k] if ext.get("confirmed") else ext["fields"][k] %}{% for it in rows %}<tr><td>{{ label }}</td>
+<td>{% if editable %}<input form="confirm" name="v_{{ k }}_{{ loop.index0 }}" value="{{ it.value }}" size="40" aria-label="{{ label }} {{ loop.index }} 값">{% else %}{{ it.value }}{% endif %}</td>
+<td>"{{ it.quote }}"</td><td>{{ it.start }}~{{ it.end }}</td>
+{% if editable %}<td><select form="confirm" name="d_{{ k }}_{{ loop.index0 }}" aria-label="{{ label }} {{ loop.index }} 결정">{% for o in ["채택", "수정", "기각"] %}<option>{{ o }}</option>{% endfor %}</select></td>
+{% elif ext.get("confirmed") %}<td>{{ it["결정"] }}</td>{% endif %}</tr>{% else %}<tr><td>{{ label }}</td><td colspan="4" class="muted">없음</td></tr>{% endfor %}{% endfor %}
 </table>
 {% if ext["dropped"] %}<h3>근거 없음(버림)</h3><table>{% for it in ext["dropped"] %}<tr><td>{{ fields[it.field] }}</td><td>{{ it.value }}</td><td>"{{ it.quote }}"</td><td>{{ it.why }}</td></tr>{% endfor %}</table>{% endif %}
 </section>{% endif %}
 {% if d.status == "확인 대기" and role == "영업지원" %}<section><h2>담당자 확인 {{ real() }}</h2>
-<form method="post" action="/papers/{{ d.id }}/confirm">
+{% if not ext.get("fields") %}<form method="post" action="/papers/{{ d.id }}/confirm" id="confirm"></form>{% endif %}
 {% if d.kind == "정정 신고" %}
-<p>정정 사실 확정: 거래처 <input name="agency_id" value="{{ d.agency_id }}" size="7">
-항목 <select name="field">{% for f in ["주소", "대표자", "정산계좌"] %}<option {{ "selected" if proposal.field == f }}>{{ f }}</option>{% endfor %}</select>
-새 값 <input name="value" value="{{ proposal.value }}" size="30" required></p>
+<p>정정 사실 확정: 거래처 <input form="confirm" name="agency_id" value="{{ d.agency_id }}" size="7">
+항목 <select form="confirm" name="field">{% for f in ["주소", "대표자", "정산계좌"] %}<option {{ "selected" if proposal.field == f }}>{{ f }}</option>{% endfor %}</select>
+새 값 <input form="confirm" name="value" value="{{ proposal.value }}" size="30" required></p>
 <p class="muted">확정하면 마스터 새 버전이 만들어지고 코드가 관계와 합산을 다시 계산합니다. 승인된 사건은 실행 전 재검증에서 근거 변경을 확인합니다.</p>
 {% else %}<p>소명 내용을 확인했습니다. 거절된 사건은 다시 판정되어 재상신할 수 있게 됩니다. 관계 판정과 합산은 바뀌지 않습니다.</p>{% endif %}
-<button>확인</button></form></section>{% elif d.status == "확인 대기" %}<p class="muted">담당자 확인은 영업지원 역할에서 합니다.</p>{% endif %}
+<button form="confirm">확인</button></section>{% elif d.status == "확인 대기" %}<p class="muted">담당자 확인은 영업지원 역할에서 합니다.</p>{% endif %}
 {% endblock %}

@@ -686,16 +686,74 @@ def receive_doc(s: Session, kind: str, agency_id: str, text: str, case_id=None, 
     log(s, "대리점(모의)", "모의 외부", "문서 접수", f"문서 {d.id}", f"{kind} {agency_id}", "모의 회신")
     log(s, "AI" if ext["extractor"].startswith("AI 사용") else "시스템",
         "AI" if ext["extractor"].startswith("AI 사용") else "시스템", "문서 구조화", f"문서 {d.id}",
-        f"{ext['extractor']}, 인용 확인 {sum(len(v) for v in ext['fields'].values())}건, 근거 없음 {len(ext['dropped'])}건")
+        f"추출 주체 {ext['extractor']}" + (f", 소요 {ext['ms']}ms" if ext.get("ms") is not None else "") +
+        f", 인용 검증 통과 {sum(len(v) for v in ext['fields'].values())}건, 근거 없음으로 버림 {len(ext['dropped'])}건")
     s.commit()
     return d.id
 
 
-def confirm_doc(s: Session, doc_id: int, actor="영업지원 담당자", correction: dict | None = None):
-    """담당자 확인. 확인 전 AI 추출은 어떤 판정에도 쓰이지 않는다."""
+REVIEW = ("채택", "수정", "기각")
+
+
+def review_items(ext: dict, decisions: dict | None) -> tuple[dict, dict]:
+    """AI 제안 항목별 담당자 결정 반영. decisions는 {"claims:0": ("수정", "새 값")}, 없으면 모두 채택.
+    확정된 항목만 돌려주고, AI 제안과 사람 확정의 차이를 함께 돌려준다."""
+    confirmed, diff = {}, {"채택": 0, "수정": 0, "기각": 0, "변경": []}
+    for k, items in ext.get("fields", {}).items():
+        confirmed[k] = []
+        for i, it in enumerate(items):
+            dec, val = (decisions or {}).get(f"{k}:{i}", ("채택", it["value"]))
+            val = val.strip()
+            if dec not in REVIEW:
+                raise ValueError(f"알 수 없는 결정: {dec}")
+            if dec == "수정" and not val:
+                raise ValueError(f"{ai.FIELDS[k]} {i + 1}번 수정 값이 비어 있음")
+            if dec == "수정" and val == it["value"]:
+                dec = "채택"
+            diff[dec] += 1
+            if dec == "기각":
+                diff["변경"].append(f"{ai.FIELDS[k]} 기각: {it['value']}")
+                continue
+            if dec == "수정":
+                diff["변경"].append(f"{ai.FIELDS[k]} 수정: {it['value']} -> {val}")
+            confirmed[k].append(it | {"value": val if dec == "수정" else it["value"], "결정": dec})
+    return confirmed, diff
+
+
+def _snapshot(s) -> tuple[dict, set]:
+    cases = {c.id: (c.status, c.basis_hash) for c in s.scalars(select(Case))}
+    valid = set(s.scalars(select(Approval.id).where(Approval.decision == "승인", Approval.valid)))
+    return cases, valid
+
+
+def _effects(before: tuple, after: tuple) -> dict[int | None, list[str]]:
+    """확인 전후 실제로 바뀐 것만 사건별로 모은다(None은 사건과 무관한 변화)."""
+    out = {}
+    for cid, (st, h) in sorted(after[0].items()):
+        old = before[0].get(cid)
+        if old is None:
+            out.setdefault(cid, []).append(f"사건 #{cid} 새로 생성({st})")
+        elif old[0] != st:
+            hint = " 재상신 가능" if st in ("상위 승인 필요", "승인 무효(재상신)") else ""
+            out.setdefault(cid, []).append(f"사건 #{cid} {old[0]} -> {st}{hint}")
+        elif old[1] != h:
+            hint = ", 실행 전 재검증에서 차단 예정" if st == "승인됨" else ""
+            out.setdefault(cid, []).append(f"사건 #{cid} 근거 변경{hint}")
+    for aid in sorted(before[1] - after[1]):
+        out.setdefault(None, []).append(f"승인 {aid} 무효")
+    return out
+
+
+def confirm_doc(s: Session, doc_id: int, actor="영업지원 담당자", correction: dict | None = None,
+                decisions: dict | None = None):
+    """담당자 확인. 확인 전 AI 추출은 어떤 판정에도 쓰이지 않는다. 확인하면 확정 항목만 저장한다."""
     d = s.get(Doc, doc_id)
     if not d or d.status != "확인 대기":
         raise ValueError("확인 대기 문서가 아님")
+    ext = json.loads(d.extraction_json or "{}")
+    confirmed, diff = review_items(ext, decisions)
+    before = _snapshot(s)
+    master = []
     if d.kind == "정정 신고":
         field = {"주소": "address", "대표자": "representative", "정산계좌": "account"}[correction["field"]]
         aid = correction["agency_id"]
@@ -709,6 +767,7 @@ def confirm_doc(s: Session, doc_id: int, actor="영업지원 담당자", correct
                            source_ref=f"doc:{d.id}")
         setattr(nv, field, correction["value"])
         s.add(nv)
+        master.append(f"마스터 {aid} v{nv.version_no} 생성({correction['field']})")
         log(s, actor, "사람", "정정 확정", aid,
             f"{correction['field']}: {getattr(cur, field)} -> {correction['value']} (마스터 v{nv.version_no})", d.grade)
     else:
@@ -716,6 +775,9 @@ def confirm_doc(s: Session, doc_id: int, actor="영업지원 담당자", correct
                                               Task.status == "열림")):
             t.status = "완료"
         log(s, actor, "사람", "소명 확인", f"문서 {d.id}", f"사건 {d.case_id} 소명 접수 확인")
+    log(s, actor, "사람", "AI 제안 검토", f"문서 {d.id}",
+        "\n".join([f"추출 주체 {d.extractor}. 채택 {diff['채택']}, 수정 {diff['수정']}, 기각 {diff['기각']}"]
+                  + diff["변경"]))
     d.status, d.confirmed_by = "확인됨", actor
     s.flush()
     rejudge(s)
@@ -723,6 +785,13 @@ def confirm_doc(s: Session, doc_id: int, actor="영업지원 담당자", correct
         c = _case(s, d.case_id)
         if c.status == "거절됨":
             transition(s, c, computed_status(c), actor, "사람", "소명 확인 후 재판정")
+    eff = _effects(before, _snapshot(s))
+    lines = master + [x for v in eff.values() for x in v] or ["후속 변화 없음"]
+    for cid in sorted({k for k in eff if k is not None} | ({d.case_id} if d.case_id else set())):
+        log(s, actor, "사람", "문서 확인 결과", f"사건 {cid}",
+            f"문서 {d.id} 확인: " + ", ".join(master + eff.get(cid, []) or ["이 사건 후속 변화 없음"]))
+    log(s, actor, "사람", "문서 확인 결과", f"문서 {d.id}", ", ".join(lines))
+    d.extraction_json = json.dumps(ext | {"confirmed": confirmed, "review": diff, "effects": lines}, ensure_ascii=False)
     s.commit()
 
 

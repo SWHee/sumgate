@@ -14,6 +14,7 @@ PG_URL = os.environ.get("DATABASE_URL", "")
 def no_api_key(monkeypatch):
     # 테스트는 키 없이 돌고 외부로 아무것도 보내지 않는다
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
 
 @pytest.fixture

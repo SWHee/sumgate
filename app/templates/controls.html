@@ -26,6 +26,7 @@
 <p class="muted">끄면 승인 후 근거가 바뀌어도 옛 승인으로 지급 작업이 만들어지고 이력에 "재검증 끔(대조군 D)"이 남습니다. 비교 시연용이며 기본값은 켬입니다.</p></section>
 
 <section><h2>대조 E: 소명 문서 구조화 정답 대비 {{ grade("합성") }}{{ real() }}</h2>
+<p>현재 AI 경로: <b>{{ ai_status }}</b></p>
 <p class="muted">합성 소명 문서 3건(data_derived/docs/EXP-*), 정답 gold_E.json. 누락률 = 못 찾은 정답 / 정답, 오류율 = 정답에 없는 추출 / 추출.</p>
 <table><tr><th>문서</th><th>대체 추출기(규칙)</th><th>AI 추출</th></tr>
 {% for name, v in e_fb.items() %}<tr><td>{{ name }}</td><td>누락률 {{ v["누락률"] }}, 오류율 {{ v["오류율"] }} ({{ v["찾음"] }}/{{ v["정답 항목"] }} 찾음, 오추출 {{ v["오추출"] }})</td>

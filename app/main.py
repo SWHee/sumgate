@@ -56,7 +56,7 @@ def role_of(req: Request) -> str:
 
 def page(req: Request, name: str, s, **ctx):
     resp = T.TemplateResponse(req, name, {"role": role_of(req), "roles": ROLES,
-                                          "clock": sv.now(s), "use_deposits": sv.use_deposits(s),
+                                          "clock": sv.now(s), "use_deposits": sv.use_deposits(s), "ai_status": ai.status(),
                                           "msg": req.query_params.get("msg", ""), **ctx})
     if not cookie_role(req):  # R8: 처음 연 화면이 기본 역할을 명시적으로 심어 첫 클릭이 막히지 않게 한다
         resp.set_cookie("role", quote(DEFAULT_ROLE))
@@ -318,10 +318,20 @@ def doc_detail(req: Request, did: int):
 
 
 @app.post("/papers/{did}/confirm")
-def doc_confirm(req: Request, did: int, agency_id: str = Form(""), field: str = Form("주소"), value: str = Form("")):
-    corr = {"agency_id": agency_id.strip(), "field": field, "value": value.strip()} if value.strip() else None
+async def doc_confirm(req: Request, did: int):
+    form = await req.form()  # 항목별 결정 필드 이름(d_claims_0, v_claims_0)이 문서마다 달라 직접 읽는다
+    value = str(form.get("value", "")).strip()
+    corr = {"agency_id": str(form.get("agency_id", "")).strip(), "field": str(form.get("field", "주소")),
+            "value": value} if value else None
+    decisions = {}
+    for k in ai.FIELDS:
+        i = 0
+        while f"d_{k}_{i}" in form:
+            decisions[f"{k}:{i}"] = (str(form[f"d_{k}_{i}"]), str(form.get(f"v_{k}_{i}", "")))
+            i += 1
     return forbid(req, "영업지원") or act(
-        req, lambda s: sv.confirm_doc(s, did, correction=corr), "담당자 확인을 반영했습니다. 코드가 다시 계산했습니다")
+        req, lambda s: sv.confirm_doc(s, did, correction=corr, decisions=decisions or None),
+        "담당자 확인을 반영했습니다. 확정한 항목만 저장하고 코드가 다시 계산했습니다")
 
 
 # 6. 대조와 과거 관찰 -----------------------------------------------------
@@ -353,7 +363,7 @@ def control_e_ai(req: Request):
     if no := forbid(req):
         return no
     if not ai.has_key():
-        return back(req, "ANTHROPIC_API_KEY가 없어 AI 추출은 미측정입니다")
+        return back(req, "AI 키(OPENROUTER_API_KEY)가 없어 AI 추출은 미측정입니다")
     gold = json.loads((scenarios.DOCS / "gold_E.json").read_text(encoding="utf-8"))
     res = {}
     for name, g in sorted(gold.items()):

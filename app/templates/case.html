@@ -2,6 +2,7 @@
 {% block title %}사건 {{ c.id }}{% endblock %}
 {% block body %}
 <section><h2>사건 #{{ c.id }}: {{ c.group_key.replace("+", ", ") }} {{ real() }}</h2>
+{% for e in events if e.action == "문서 확인 결과" %}{% if loop.last %}<p class="msg"><b>최근 문서 확인으로 바뀐 것:</b> {{ e.detail }}</p>{% endif %}{% endfor %}
 <table>
 <tr><th>상태</th><td class="st">{{ c.status }}{% if c.status in ["지급 완료", "지급 반려(재처리)"] %} {{ grade("모의 회신") }}{% endif %}</td><th>승인 경로</th><td class="st {{ 'st-up' if c.route == '영업임원 승인' }}">{{ c.route }}</td></tr>
 <tr><th>회차(지급월)</th><td>{{ c.pay_month }} (승인 마감 {{ deadline.strftime("%Y-%m-%d %H:%M") }} {{ grade("가정") }})</td><th>합계</th><td>{{ c.total|won }}원 {{ grade("도출") }}</td></tr>
