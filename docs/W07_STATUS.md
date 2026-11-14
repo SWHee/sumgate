@@ -23,3 +23,9 @@
 - 실제 Claude API 호출 미검증(모킹 테스트만). 실제 병렬 HTTP 부하 미검증.
 - 은행 회신 전 지급 작업은 취소 가능하다는 모델 단순화. 로그인 없이 역할 쿠키로 전환(시연용).
 - 가정: 지급계좌는 마스터 정산계좌, 회계 마감 2026-07-03 17:00, 지급월은 정산월 다음 달.
+
+## 갱신 (2026-11-15 00:30). 위 내용과 다르면 이 절이 우선한다
+- 제품 이름은 모아봄(Moabom). 배포 완료: https://moabom-au27.axhub.app (lounge, 앱 이름 `moabom`, Postgres). GitHub: https://github.com/SWHee/sumgate (`main`).
+- 제출 원고 초안: `submission/design_answers.md`(Q1~Q7, 각 1,000자 이하), `run_note.md`, `video_outline.md`, `evidence.md`. 제출 절차와 실제 문항은 `SUBMISSION_GUIDE.md`.
+- 미해결: (1) 제출 폼의 AXHub 앱 목록이 비어 있음(참가 신청 계정과 AXHub 로그인 계정이 같은지 확인 필요). (2) `ANTHROPIC_API_KEY` 미등록(명령은 `RUN.md`). 등록 뒤 Q6, Q7 4번, run_note 6번, 영상 대본의 AI 문장을 고친다. (3) Q3의 본인 경험 문장은 사용자가 직접 쓴다. (4) Codex 3차 검토 미실행. (5) 사이트 리뷰에서 나온 `/docs` 주소 충돌, 공용 초기화와 재검증 해제 문제 재확인. (6) AXHub 로그인은 2026-11-15 20:20에 만료.
+- 제출 폼 입력, 업로드, 제출은 사용자가 직접 한다. 에이전트는 하지 않는다.
