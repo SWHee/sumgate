@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app import ai, rules, scenarios, service as sv
-from app.models import Approval, Case, RebateRequest, Task, make_sessionmaker
+from app.models import Approval, Case, RebateRequest, Task
 from test_regressions import case_of, new_version, req, tasks
 
 
@@ -152,17 +152,20 @@ def test_r5_account_recheck_after_unconfirmable(s):
 
 # R6 ---------------------------------------------------------------------
 def test_r6_interrupted_initial_load_recovers(db_url, monkeypatch):
-    url = db_url
-    sm = make_sessionmaker(url)
-    with sm() as s:
-        sv.reset(s)  # 원본 적재 커밋 뒤, 접수 전에 끊긴 상태
-    monkeypatch.setenv("DATABASE_URL", url)
-    from app.main import app
-    with TestClient(app):
+    monkeypatch.setenv("DATABASE_URL", db_url)
+    import app.main as m
+    with TestClient(m.app):
         pass
-    with sm() as s:
-        live = list(s.scalars(select(RebateRequest).where(RebateRequest.status != sv.HISTORY)))
-        assert len(live) == 40 and len(list(s.scalars(select(Case)))) == 38
+    half = "f" * 32  # 작업 공간을 만들다 끊김(등록 전), 견본도 적재 뒤 접수 전에 끊긴 상태
+    m.SPACES._build(half)
+    for name in ("template", half):
+        with m.SPACES.sm(None if name == "template" else name)() as s:
+            sv.reset(s)
+    with TestClient(m.app):  # 재시작
+        assert m.SPACES.names() == ["template"] and m.SPACES.find(half) is None
+        with m.SPACES.sm()() as s:
+            live = list(s.scalars(select(RebateRequest).where(RebateRequest.status != sv.HISTORY)))
+            assert len(live) == 40 and len(list(s.scalars(select(Case)))) == 38
 
 
 # R7 ---------------------------------------------------------------------
@@ -191,9 +194,10 @@ def test_r8_cookieless_post_is_forbidden(db_url, monkeypatch):
         for path in posts:
             resp = cl.post(re.sub(r"\{\w+\}", "1", path), data=form)
             assert resp.status_code == 403 and "역할" in resp.text, path
-        with __import__("app.main", fromlist=["SM"]).SM() as s:
+        m = __import__("app.main", fromlist=["SPACES"])
+        assert m.SPACES.names() == ["template"]  # 역할 쿠키 없는 POST는 작업 공간도 만들지 않는다
+        with m.SPACES.sm()() as s:
             assert not list(s.scalars(select(Approval)))
-            assert sv.get(s, "revalidate") == "1"
         cl.get("/")  # 첫 화면이 기본 역할(영업지원) 쿠키를 심는다
         assert cl.cookies.get("role") == quote("영업지원")
         assert "전결 사건 37건 승인" in cl.post("/bulk/approve-support").text
@@ -206,7 +210,7 @@ def test_r9_relation_evidence_shows_derived_and_version_grades(db_url, monkeypat
     with TestClient(m.app) as cl:
         cl.get("/")
         cl.post("/scenarios/run", data={"name": "S2"})
-        with m.SM() as s:
+        with m.SPACES.sm(cl.cookies.get("ws"))() as s:
             gid = scenarios.group_case(s).id
         html = cl.get(f"/cases/{gid}").text
         row = re.search(r"<tr><td>D-011~D-024</td>.*?</tr>", html, re.S).group(0)

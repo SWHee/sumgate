@@ -153,16 +153,16 @@ def test_regress_f6_non_positive_amount_needs_check(s):
     assert not [t for t in tasks(s, "회계 지급") if t.request_id in ("SYN-F6-2", "SYN-F6-3")]
 
 
-def test_regress_f7_approval_confirms_pay_month(s):
+def test_regress_f7_approval_confirms_pay_month(s, monkeypatch):
     c = s.scalars(select(Case).where(Case.status == "전결 승인 대기").order_by(Case.id)).first()
     assert {r.pay_month_grade for r in sv.case_requests(s, c.id)} == {"가정"}
     sv.approve(s, c.id, "영업지원")
     assert {r.pay_month_grade for r in sv.case_requests(s, c.id)} == {"확정(승인 시)"}
     assert sv.execute(s, c.id)  # 승인이 등급을 바꿔도 승인 근거와 현재 근거가 같아야 한다
-    # 마지막 방어선: 재검증을 끈 상태에서도 지급월이 확정되지 않은 요청에는 지급 작업이 없다
+    # 마지막 방어선: 재검증 게이트를 건너뛰어도 지급월이 확정되지 않은 요청에는 지급 작업이 없다
     c2 = s.scalars(select(Case).where(Case.status == "전결 승인 대기").order_by(Case.id)).first()
     sv.approve(s, c2.id, "영업지원")
-    sv.set_revalidate(s, False)
+    monkeypatch.setattr(sv, "gate", lambda *a: True)
     for r in sv.case_requests(s, c2.id):
         r.pay_month_grade = "가정"
     s.commit()
@@ -187,7 +187,7 @@ def test_regress_a1_server_side_role_checks(db_url, monkeypatch):
         assert r.status_code == 403 and "영업지원" in r.text
         for path, data in [(f"/cases/{gid}/submit", None), (f"/cases/{sid}/approve", None),
                            ("/mock/clock", {"ts": "2026-07-02 10:00"}), ("/tasks/1/account-reply", {"valid": "1"}),
-                           ("/bank/all", {"result": "성공"}), ("/settings/deposits", {"on": "0"})]:
+                           ("/bank/all", {"result": "성공"})]:
             assert cl.post(path, data=data).status_code == 403, path
         _role(cl, "영업지원")
         assert cl.post(f"/cases/{sid}/execute").status_code == 403
@@ -215,8 +215,8 @@ def test_regress_f1_retry_gate_by_itself(s):
     assert s.get(Case, cid).status == "승인 무효(재상신)"
 
 
-ALL_ROLES = {"/scenarios/reset", "/scenarios/run", "/settings/revalidate", "/controls/e/ai"}
-NEED = {"/bulk/approve-support": "영업지원", "/bulk/execute": "회계", "/settings/deposits": "영업지원",
+ALL_ROLES = {"/scenarios/reset", "/scenarios/run", "/controls/e/ai"}
+NEED = {"/bulk/approve-support": "영업지원", "/bulk/execute": "회계",
         "/cases/{cid}/approve": "영업지원 영업임원", "/cases/{cid}/reject": "영업임원", "/cases/{cid}/submit": "영업지원",
         "/cases/{cid}/execute": "회계", "/tasks/{tid}/account-reply": "모의 외부", "/tasks/{tid}/recheck": "영업지원", "/tasks/{tid}/bank": "모의 외부",
         "/bank/all": "모의 외부", "/tasks/{tid}/retry": "회계", "/mock/doc": "모의 외부", "/mock/amount": "모의 외부",

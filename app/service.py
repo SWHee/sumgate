@@ -67,8 +67,6 @@ def reset(s: Session):
     Base.metadata.drop_all(bind)
     Base.metadata.create_all(bind)
     put(s, "clock", START_CLOCK)
-    put(s, "use_deposits", "1")
-    put(s, "revalidate", "1")
     for a in loader.agencies():
         s.add(AgencyVersion(agency_id=a["agency_id"], version_no=1, name=a["name"], representative=a["representative"],
                             address=a["address"], account=a["account"], effective_at=a["registered"],
@@ -133,13 +131,9 @@ def case_requests(s, case_id) -> list[RebateRequest]:
     return list(s.scalars(select(RebateRequest).where(RebateRequest.case_id == case_id).order_by(RebateRequest.rebate_id)))
 
 
-def use_deposits(s) -> bool:
-    return get(s, "use_deposits") == "1"
-
-
 def context(s) -> dict:
     ags, deps = current_agencies(s), deposits(s)
-    group_of, evidence = rules.find_groups(ags, deps, use_deposits(s))
+    group_of, evidence = rules.find_groups(ags, deps, True)
     return {"ags": ags, "deps": deps, "hist": history(s), "group_of": group_of, "evidence": evidence}
 
 
@@ -211,10 +205,9 @@ def rejudge(s: Session):
             r.status = "진행"
     s.flush()
     cases = list(s.scalars(select(Case).order_by(Case.id)))
-    if get(s, "revalidate") != "0":
-        for c in cases:
-            if c.status in IN_FLIGHT:
-                gate(s, c, ctx)
+    for c in cases:
+        if c.status in IN_FLIGHT:
+            gate(s, c, ctx)
     by_id = {c.id: c for c in cases}
     canon = {}
     # P1(R4): 같은 (그룹, 지급월)에서 지급 완료 전 요청은 모두 가장 앞선 열린 사건 하나로 모은다.
@@ -404,10 +397,6 @@ def gate(s, c: Case, ctx: dict) -> bool:
     if a and a.basis_hash == c.basis_hash:
         return True
     diff = rules.basis_diff(json.loads(a.basis_json), basis) if a else ["유효한 승인 없음"]
-    if a and get(s, "revalidate") == "0":
-        # 대조군 D 전용. 기본값은 켬이며, 끄면 승인 후 변경이 옛 승인으로 실행되는 것을 일부러 보여준다
-        log(s, "시스템", "시스템", "재검증 끔(대조군 D): 옛 승인으로 실행", f"사건 {c.id}", "\n".join(diff))
-        return True
     if a:
         a.valid, a.invalid_reason = False, "\n".join(diff)
     cancelled = cancel_payments(s, c.id)
@@ -807,19 +796,6 @@ def correct_amount(s: Session, rebate_id: str, amount: int, reason: str, source_
     r.amount, r.grade = amount, "합성"
     r.note = f"{r.note} 금액 정정({source_ref}): {reason}".strip()
     s.flush()
-    rejudge(s)
-    s.commit()
-
-
-def set_revalidate(s: Session, on: bool, actor="시연자"):
-    put(s, "revalidate", "1" if on else "0")
-    log(s, actor, "사람", "설정 변경", "실행 전 재검증(대조군 D)", "켬" if on else "끔")
-    s.commit()
-
-
-def set_use_deposits(s: Session, on: bool, actor="영업지원 담당자"):
-    put(s, "use_deposits", "1" if on else "0")
-    log(s, actor, "사람", "설정 변경", "입금계좌 대조", "켬" if on else "끔")
     rejudge(s)
     s.commit()
 

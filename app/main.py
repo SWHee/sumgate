@@ -8,37 +8,56 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup, escape
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
-from app import ai, loader, rules, scenarios, service as sv
+from app import ai, loader, rules, scenarios, service as sv, workspace
 from app.loader import ROOT
-from app.models import AgencyVersion, Approval, Case, Doc, EventLog, RebateRequest, Task, SCHEMA, make_sessionmaker
+from app.models import AgencyVersion, Approval, Case, Doc, EventLog, RebateRequest, Task
 
 ROLES = ["영업지원", "영업임원", "회계", "모의 외부"]
-SM = None
+SPACES: workspace.Spaces | None = None
 
 
 @asynccontextmanager
 async def lifespan(_app):
-    global SM
-    SM = make_sessionmaker()
-    with SM() as s:
-        try:
-            ready = sv.get(s, "init_done") == SCHEMA
-        except SQLAlchemyError:  # 옛 버전의 setting 테이블을 읽지 못하면 다시 만든다
-            s.rollback()
-            ready = False
-        if not ready:  # 빈 DB, 초기 적재가 중간에 끊김(R6), 테이블 정의가 바뀐 새 버전이면 처음부터 다시 적재
-            sv.reset(s)
-            sv.intake_original(s)
+    global SPACES
+    SPACES = workspace.Spaces()
+    SPACES.prepare()  # 견본을 매번 초기 상태로 새로 만든다. 작업 공간은 스키마 표식이 같으면 유지
     yield
+    SPACES.engine.dispose()
 
 
 app = FastAPI(title="모아봄 Moabom", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 T = Jinja2Templates(directory=str(ROOT / "app" / "templates"))
 T.env.filters["won"] = lambda v: f"{int(v):,}"
 T.env.filters["fromjson"] = json.loads
+
+
+@app.middleware("http")
+async def workspace_cookie(req: Request, call_next):
+    resp = await call_next(req)
+    if new := getattr(req.state, "new_ws", None):
+        resp.set_cookie("ws", new, max_age=workspace.TTL, httponly=True, samesite="lax")
+    return resp
+
+
+def ws_of(req: Request) -> str | None:
+    """요청의 작업 공간 ID. 없거나 쿠키가 형식에 맞지 않거나 없는 공간이면 None(견본, 읽기 전용)."""
+    if not hasattr(req.state, "ws"):
+        req.state.ws = SPACES.find(req.cookies.get("ws", ""))
+    return req.state.ws
+
+
+def db(req: Request, write: bool = False):
+    """조회는 내 작업 공간 또는 견본. 상태를 바꾸는 요청(역할 검사 통과 뒤)은 내 작업 공간이 없으면 만든다."""
+    ws = ws_of(req)
+    if write:
+        if ws:
+            SPACES.touch(ws)
+        else:
+            ws = req.state.ws = req.state.new_ws = SPACES.create()
+    return SPACES.sm(ws)()
 
 
 DEFAULT_ROLE = "영업지원"
@@ -56,7 +75,7 @@ def role_of(req: Request) -> str:
 
 def page(req: Request, name: str, s, **ctx):
     resp = T.TemplateResponse(req, name, {"role": role_of(req), "roles": ROLES,
-                                          "clock": sv.now(s), "use_deposits": sv.use_deposits(s), "ai_status": ai.status(),
+                                          "clock": sv.now(s), "ws": ws_of(req), "ai_status": ai.status(),
                                           "msg": req.query_params.get("msg", ""), **ctx})
     if not cookie_role(req):  # R8: 처음 연 화면이 기본 역할을 명시적으로 심어 첫 클릭이 막히지 않게 한다
         resp.set_cookie("role", quote(DEFAULT_ROLE))
@@ -89,7 +108,7 @@ def forbid(req: Request, *roles: str):
 
 
 def act(req: Request, fn, ok_msg: str = "처리했습니다", to: str | None = None):
-    with SM() as s:
+    with db(req, write=True) as s:
         try:
             r = fn(s)
             return back(req, r if isinstance(r, str) else ok_msg, to)
@@ -115,7 +134,7 @@ def set_role(req: Request, r: str):
 # 1. 대기열 ---------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 def queue(req: Request):
-    with SM() as s:
+    with db(req) as s:
         cases = list(s.scalars(select(Case).order_by(Case.id)))
         grades = {}
         for r in s.scalars(select(RebateRequest).where(RebateRequest.status != sv.HISTORY)):
@@ -138,20 +157,10 @@ def bulk_execute(req: Request):
     return forbid(req, "회계") or act(req, f)
 
 
-@app.post("/settings/deposits")
-def toggle_deposits(req: Request, on: str = Form(...)):
-    return forbid(req, "영업지원") or act(req, lambda s: sv.set_use_deposits(s, on == "1"), "입금계좌 대조 설정을 바꿨습니다")
-
-
-@app.post("/settings/revalidate")
-def toggle_revalidate(req: Request, on: str = Form(...)):
-    return forbid(req) or act(req, lambda s: sv.set_revalidate(s, on == "1"), "실행 전 재검증 설정을 바꿨습니다")
-
-
 # 2. 사건 상세 ------------------------------------------------------------
 @app.get("/cases/{cid}", response_class=HTMLResponse)
 def case_detail(req: Request, cid: int):
-    with SM() as s:
+    with db(req) as s:
         c = s.get(Case, cid)
         if not c:
             return back(req, "사건 없음", "/")
@@ -195,7 +204,7 @@ def case_execute(req: Request, cid: int):
 # 3. 작업함 ---------------------------------------------------------------
 @app.get("/tasks", response_class=HTMLResponse)
 def tasks(req: Request):
-    with SM() as s:
+    with db(req) as s:
         ts = list(s.scalars(select(Task).order_by(Task.id)))
         by_dept = {}
         for t in ts:
@@ -232,7 +241,7 @@ def retry(req: Request, tid: int):
 # 4. 모의 입력 ------------------------------------------------------------
 @app.get("/mock", response_class=HTMLResponse)
 def mock(req: Request, sample: str = ""):
-    with SM() as s:
+    with db(req) as s:
         samples = sorted(p.name for p in scenarios.DOCS.glob("*.txt"))
         text = (scenarios.DOCS / sample).read_text(encoding="utf-8") if sample in samples else ""
         kind = "정정 신고" if sample.startswith("COR") else "소명 회신"
@@ -253,7 +262,7 @@ def mock_doc(req: Request, kind: str = Form(...), agency_id: str = Form(...), te
         did = sv.receive_doc(s, kind, agency_id.strip(), text, int(case_id) if case_id.strip() else None,
                              source_ref=source_ref or "모의 입력 화면")
         return did
-    with SM() as s:
+    with db(req, write=True) as s:
         try:
             did = f(s)
         except ValueError as e:
@@ -298,13 +307,13 @@ def highlight(text: str, ext: dict) -> Markup:
 
 @app.get("/papers", response_class=HTMLResponse)
 def docs(req: Request):
-    with SM() as s:
+    with db(req) as s:
         return page(req, "docs.html", s, docs=list(s.scalars(select(Doc).order_by(Doc.id.desc()))))
 
 
 @app.get("/papers/{did}", response_class=HTMLResponse)
 def doc_detail(req: Request, did: int):
-    with SM() as s:
+    with db(req) as s:
         d = s.get(Doc, did)
         if not d:
             return back(req, "문서 없음", "/papers")
@@ -349,13 +358,16 @@ def controls(req: Request):
     _, ev_on = rules.find_groups(ags, dps, True)
     c_items = rules.pair_match(ags["D-034"], ags["D-041"], dps, True)[0]
     obs = rules.observe_history(hist, scenarios.G, [f"2026-0{i}" for i in range(1, 6)])
-    with SM() as s:
+    with db(req) as s:
         d_rows = [a for a in s.scalars(select(Approval).where(Approval.decision == "승인", Approval.invalid_reason != "")
                                        .order_by(Approval.id))]
         e_ai = json.loads(sv.get(s, "e_ai") or "{}")
+        # 대조 D: 실행 전 승인을 옛 근거로 재사용했다면(계산만, 상태는 바꾸지 않음). 재검증 게이트는 항상 켜져 있다
+        d_live = [r | {"사건": c.id} for c in s.scalars(select(Case).where(Case.status == "승인됨").order_by(Case.id))
+                  if (r := sv.would_reuse(s, c.id)) and r["재검증 시"] != "통과"]
         return page(req, "controls.html", s, n_cases=len(cases), up=up, per_agency_up=per_agency_up,
                     ev_off=ev_off, ev_on=ev_on, c_items=c_items, obs=obs, obs_sum=sum(o["total"] for o in obs),
-                    d_rows=d_rows, revalidate=sv.get(s, "revalidate") != "0", e_fb=scenarios.control_e(), e_ai=e_ai, has_key=ai.has_key())
+                    d_rows=d_rows, d_live=d_live, e_fb=scenarios.control_e(), e_ai=e_ai, has_key=ai.has_key())
 
 
 @app.post("/controls/e/ai")
@@ -375,7 +387,7 @@ def control_e_ai(req: Request):
 # 7. 이력 -----------------------------------------------------------------
 @app.get("/log", response_class=HTMLResponse)
 def event_log(req: Request):
-    with SM() as s:
+    with db(req) as s:
         ev = list(s.scalars(select(EventLog).order_by(EventLog.id.desc()).limit(500)))
         versions = list(s.scalars(select(AgencyVersion).where(AgencyVersion.version_no > 1).order_by(AgencyVersion.id)))
         return page(req, "log.html", s, events=ev, versions=versions)
@@ -384,7 +396,7 @@ def event_log(req: Request):
 # 8. 시나리오 실행과 초기화 ----------------------------------------------
 @app.get("/scenarios", response_class=HTMLResponse)
 def scen(req: Request):
-    with SM() as s:
+    with db(req) as s:
         return page(req, "scenarios.html", s, summary=sv.get(s, "last_summary"))
 
 

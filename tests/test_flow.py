@@ -176,20 +176,23 @@ def test_f2_change_after_approval_not_executed(s):
     assert tasks(s, "재상신")
 
 
-def test_control_d_switch_off_runs_stale_approval(s):
+def test_control_d_reuse_is_computed_without_changing_state(s):
     c = gcase(s)
     sv.account_reply(s, tasks(s, "지급계좌 확인")[0].id, True)
     sv.submit(s, c.id, use_ai=False)
     sv.approve(s, c.id, "영업임원")
     sv.correct_amount(s, "RB-00054", 1373516, "테스트", "test")
-    sv.set_revalidate(s, False)  # 대조군 D: 끄면 옛 승인으로 실행된다(기본값은 켬)
-    assert sv.execute(s, c.id) is True
-    assert [e for e in s.scalars(select(EventLog)) if e.action.startswith("재검증 끔")]
-    assert sv.get(s, "revalidate") == "0"
+    n_events = len(list(s.scalars(select(EventLog))))
+    d = sv.would_reuse(s, c.id)  # 대조군 D: 옛 승인을 재사용했다면(계산만)
+    assert d["재사용 시"].startswith(f"승인 {d['승인']}의 옛 근거로 지급 작업") and d["재검증 시"] == "차단(승인 무효, 재상신)"
+    assert d["달라진 근거"]
+    assert gcase(s).status == "승인됨" and len(list(s.scalars(select(EventLog)))) == n_events
+    assert sv.execute(s, c.id) is False  # 재검증 게이트는 항상 켜져 있다
 
 
-def test_revalidate_default_on(s):
-    assert sv.get(s, "revalidate") == "1"
+def test_no_global_switch_settings(s):
+    assert sv.get(s, "revalidate") == "" and sv.get(s, "use_deposits") == ""
+    assert not hasattr(sv, "set_revalidate") and not hasattr(sv, "set_use_deposits")
 
 
 def test_f3_unrelated_cases_not_held(s):

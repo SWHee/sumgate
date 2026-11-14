@@ -2,8 +2,12 @@ import os
 
 import pytest
 
+from sqlalchemy import inspect
+from sqlalchemy.schema import DropSchema
+
 from app import service as sv
 from app.models import Base, make_sessionmaker
+from app.workspace import registry
 
 # DATABASE_URL을 주고 돌리면 그 DB(Postgres)에서, 없으면 테스트마다 새 SQLite 파일에서 돈다.
 # monkeypatch보다 먼저 한 번만 읽는다.
@@ -19,11 +23,16 @@ def no_api_key(monkeypatch):
 
 @pytest.fixture
 def db_url(tmp_path):
-    """테스트마다 빈 DB 주소. Postgres는 하나를 같이 쓰므로 테스트 시작 전에 테이블을 모두 지운다."""
+    """테스트마다 빈 DB 주소. Postgres는 하나를 같이 쓰므로 테스트 시작 전에 테이블과 작업 공간 스키마를 모두 지운다."""
     if not PG_URL:
         return f"sqlite:///{tmp_path / 't.db'}"
     engine = make_sessionmaker(PG_URL).kw["bind"]
     Base.metadata.drop_all(engine)
+    with engine.begin() as c:
+        for n in inspect(c).get_schema_names():
+            if n.startswith("ws_"):
+                c.execute(DropSchema(n, cascade=True))
+        registry.drop(c, checkfirst=True)
     engine.dispose()
     return PG_URL
 

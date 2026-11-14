@@ -19,11 +19,13 @@
 {% if d_rows %}<table><tr><th>승인</th><th>사건</th><th>재사용했다면</th><th>재검증 결과</th><th>달라진 근거</th></tr>
 {% for a in d_rows %}{% set old = a.basis_json|fromjson %}<tr><td>{{ a.id }}</td><td><a href="/cases/{{ a.case_id }}">#{{ a.case_id }}</a></td>
 <td>옛 근거로 지급 작업 {{ old["요청"]|length }}건 생성, 합계 {{ old["합계"]|won }}원</td><td class="st st-up">차단(승인 무효, 재상신)</td><td><pre>{{ a.invalid_reason }}</pre></td></tr>{% endfor %}</table>
-{% else %}<p class="muted">아직 재검증으로 막힌 승인이 없습니다. 시나리오 S2를 실행하면 나타납니다.</p>{% endif %}
-<form method="post" action="/settings/revalidate"><input type="hidden" name="on" value="{{ '0' if revalidate else '1' }}">
-실행 전 재검증: <b class="st {{ 'st-ok' if revalidate else 'st-up' }}">{{ "켬(기본)" if revalidate else "끔(대조군 D 시연 중)" }}</b>
-<button>{{ "끄기(대조군 D: 옛 승인으로 실행되는지 보기)" if revalidate else "다시 켜기" }}</button></form>
-<p class="muted">끄면 승인 후 근거가 바뀌어도 옛 승인으로 지급 작업이 만들어지고 이력에 "재검증 끔(대조군 D)"이 남습니다. 비교 시연용이며 기본값은 켬입니다.</p></section>
+{% endif %}
+{% if d_live %}<p>아직 실행하지 않은 승인 중 승인 뒤 근거가 바뀐 것(실행하면 재검증이 막습니다):</p>
+<table><tr><th>승인</th><th>사건</th><th>재사용했다면</th><th>재검증 시</th><th>달라진 근거</th></tr>
+{% for r in d_live %}<tr><td>{{ r["승인"] }}</td><td><a href="/cases/{{ r["사건"] }}">#{{ r["사건"] }}</a></td><td>{{ r["재사용 시"] }}</td>
+<td class="st st-up">{{ r["재검증 시"] }}</td><td><pre>{{ r["달라진 근거"]|join("\n") }}</pre></td></tr>{% endfor %}</table>{% endif %}
+{% if not d_rows and not d_live %}<p class="muted">아직 근거가 바뀐 승인이 없습니다. 시나리오 S2를 실행하거나, 승인 뒤 정정을 넣으면 나타납니다.</p>{% endif %}
+<p class="muted">실행 전 재검증은 항상 켜져 있습니다. "재사용했다면"은 옛 승인을 그대로 썼을 때를 상태를 바꾸지 않고 계산한 결과입니다.</p></section>
 
 <section><h2>대조 E: 소명 문서 구조화 정답 대비 {{ grade("합성") }}{{ real() }}</h2>
 <p>현재 AI 경로: <b>{{ ai_status }}</b></p>
