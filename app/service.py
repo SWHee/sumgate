@@ -379,7 +379,10 @@ def next_step(c: Case, tasks: list[Task], docs: list[Doc]) -> dict:
     상태를 바꾸지 않는 순수 함수. role은 그 행동의 서버 역할 검사(forbid)가 허용하는 역할, where는 행동할 화면.
     대리점 안내와 회차 목록 재생성 작업은 닫히지 않으므로 막힌 이유에 쓰지 않는다.
     """
+    moved = any(t.type == "대리점 안내" and t.status == "열림" and t.case_id == c.id for t in tasks)
+
     def step(reason, role="", action="", where=""):
+        reason += f" ({c.pay_month} 회차로 이동)" if moved and c.status not in DONE else ""
         return {"reason": reason, "role": role, "action": action, "where": where or f"/cases/{c.id}"}
 
     st = c.status

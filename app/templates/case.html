@@ -14,9 +14,6 @@
 <tr><th>근거 해시</th><td colspan="3"><code>{{ c.basis_hash[:16] }}</code></td></tr>
 {% if c.prev_ids %}<tr><th>병합 전 사건</th><td colspan="3">{% for p in c.prev_ids.split(",") %}<a href="/cases/{{ p }}">#{{ p }}</a> {% endfor %}<span class="muted">이전 사건의 승인, 거절 기록은 아래 승인 기록에 함께 표시합니다</span></td></tr>{% endif %}
 </table>
-<p><b>거래처별로만 봤을 때(대조 A):</b>
-{% for k, v in per_agency.items() %}{{ k.split("|")[0] }} {{ v }}{% if not loop.last %}, {% endif %}{% endfor %}.
-<b>관련자 합산으로 볼 때:</b> 합계 {{ c.total|won }}원, {{ c.route }}</p>
 <p>
 {% if role == "영업지원" and c.status in ["상위 승인 필요", "승인 무효(재상신)"] %}<form class="inline" method="post" action="/cases/{{ c.id }}/submit"><button>{{ "재상신" if c.status == "승인 무효(재상신)" else "영업임원에게 상신" }}</button></form>{% endif %}
 {% if (role == "영업지원" and c.status == "전결 승인 대기") or (role == "영업임원" and c.status == "승인 대기") %}<b class="st st-up">이 승인은 {{ c.pay_month }} 회차 지급을 확정합니다</b>{% endif %}
@@ -25,7 +22,10 @@
 <form class="inline" method="post" action="/cases/{{ c.id }}/reject"><input name="reason" placeholder="거절 사유(필수)" required size="30"><button>거절</button></form>{% endif %}
 {% if role == "회계" and c.status == "승인됨" %}<form class="inline" method="post" action="/cases/{{ c.id }}/execute"><button>지급 실행 요청 (실행 전 재검증)</button></form>{% endif %}
 <span class="muted">현재 역할: {{ role }}</span>
-</p></section>
+</p>
+<p><b>거래처별로만 봤을 때(대조 A):</b>
+{% for k, v in per_agency.items() %}{{ k.split("|")[0] }} {{ v }}{% if not loop.last %}, {% endif %}{% endfor %}.
+<b>관련자 합산으로 볼 때:</b> 합계 {{ c.total|won }}원, {{ c.route }}</p></section>
 
 <section><h2>관계 근거 (쌍별) {{ real() }}</h2>
 {% if basis["관계 근거"] %}<table><tr><th>쌍</th><th>근거</th></tr>

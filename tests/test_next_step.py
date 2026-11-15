@@ -36,12 +36,13 @@ def test_s3_next_step_after_reject_and_cycle_move(s):
     assert (step(s)["reason"], step(s)["action"]) == ("영업임원 거절, 소명 회신 대기", "모의 외부 역할로 소명 회신 입력")
     sv.advance_clock(s, "2026-07-03 17:00")
     c = scenarios.group_case(s)
-    assert c.pay_month == "2026-08" and step(s)["role"] == "모의 외부"  # 대리점 안내 작업은 막힌 이유에 쓰지 않음
+    assert c.pay_month == "2026-08" and step(s)["role"] == "모의 외부"  # 대리점 안내 작업은 담당자를 바꾸지 않음
+    assert step(s)["reason"] == "영업임원 거절, 소명 회신 대기 (2026-08 회차로 이동)"
     d = sv.receive_doc(s, "소명 회신", "D-011", scenarios.doc_text("EXP-01_D-011.txt"), case_id=c.id, use_ai=False)
-    assert step(s) == {"reason": "소명 확인 전", "role": "영업지원", "action": "영업지원 역할로 문서에서 소명 확인",
+    assert step(s) == {"reason": "소명 확인 전 (2026-08 회차로 이동)", "role": "영업지원", "action": "영업지원 역할로 문서에서 소명 확인",
                        "where": f"/papers/{d}"}
     sv.confirm_doc(s, d)
-    assert (step(s)["reason"], step(s)["role"]) == ("영업임원 상신 전", "영업지원")
+    assert (step(s)["reason"], step(s)["role"]) == ("영업임원 상신 전 (2026-08 회차로 이동)", "영업지원")
 
 
 def test_queue_action_section_and_role_hint(db_url, monkeypatch):
