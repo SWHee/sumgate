@@ -1,31 +1,29 @@
-# 모아봄(Moabom) 진행 상태 (2026-11-14 21:20 기준)
+# 모아봄(Moabom) 진행 상태 (2026-11-15 12시 기준)
 
-제출 마감: 2026-11-15(일) 23:59. 설계서는 `docs/W07_DESIGN.md`(v2), 주제와 금지사항은 `TOPIC_W07.md`.
+제출 마감: 2026-11-15(일) 23:59 KST. 설계서 `docs/W07_DESIGN.md`(v2, 9절과 v3 변경 우선), 주제와 금지사항 `TOPIC_W07.md`, 실행 방법 `RUN.md`, 제출 절차 `SUBMISSION_GUIDE.md`.
 
 ## 끝난 것
-- 구현(Opus 5.5 / medium): `app/`, `tests/`(56개 통과, SQLite와 Postgres 양쪽), `data_derived/`, `Dockerfile`, `axhub.yaml`, `RUN.md`.
-- 교차 검토(Codex GPT-6 Astra / medium) 1차 7건, 2차 10건 발견. 외부 DB 드라이버 포함 전부 수정. 기록은 `docs/reviews/`.
-- AXHub: CLI와 Claude Code 플러그인 설치, 로그인 완료(테넌트 lounge). 앱은 아직 만들지 않았다.
-- 원본 무변경 확인: `shasum -a 256 -c docs/reviews/original.sha256 | grep -v ': OK$'` 결과가 비어야 한다(프로젝트 루트에서 실행).
+- 배포: https://moabom-au27.axhub.app (lounge, 앱 `moabom`, Postgres). 배포 커밋 19a1c34 = 로컬 HEAD(배포 상태 명령으로 확인).
+- 1차 개선(T1~T4, T6, T7): 문서 화면 `/papers`(기본 문서 경로 끔), 실제 AI(OpenRouter claude-haiku-5.5, 항목별 채택, 수정, 기각), 방문자별 작업 공간과 전역 스위치 제거, 대기열의 조치 사건과 사건 요약 카드, 대조 E 일대일 채점과 저장되는 AI 측정, 은행 회신 검증, 응답 속도 개선, 하단 버전 표시.
+- 배포본 증거(T5): `docs/reviews/DEPLOY_EVIDENCE.md`. S1 손 경로와 S1~S3 버튼, S2 손 경로(실제 AI 문서 확인 포함), 대조 E AI 측정 3건, 격리, 응답 시간.
+- 테스트: 로컬 SQLite 107 passed, 1 skipped. 병렬, 재시작 시험은 로컬 Docker Postgres에서 통과.
+- 제출 원고: `submission/`(git 제외) Q1~Q7, 실행 안내, 영상 대본, 근거표를 배포본 기준으로 갱신.
 
-## 남은 것 (순서대로)
-1. Claude Code 재시작(AXHub 플러그인 적용).
-2. git 저장소 생성. 커밋 전 `git check-ignore .claude/settings.local.json .codex/hooks.json .agents/hooks.json`가 3개를 모두 출력하는지 확인. `.venv`, `*.db`, `__pycache__`는 `.git/info/exclude`로 제외(`.gitignore`는 수정 금지).
-3. AXHub 첫 배포: 테넌트 lounge, 앱 이름 `sumgate`(주소는 첫 배포 뒤 변경 불가), 공개 범위 「누구나」, `axhub up` 방식 금지. 첫 배포에서 확인할 미확인 항목: PORT 주입 여부, 헬스 체크 경로.
-4. `ANTHROPIC_API_KEY`를 `axhub env`로 등록(사용자가 직접 입력). 등록 뒤 실제 AI 호출과 대조 E 측정.
-5. Codex 3차 검토: 한도가 2026-11-15 01:13에 풀린다. 프롬프트는 `docs/reviews/codex_round3_prompt.md`. 실행 명령:
-   `node ~/.claude/plugins/cache/openai-codex/codex/1.0.6/scripts/codex-companion.mjs task --fresh --model gpt-6-astra --effort medium --prompt-file docs/reviews/codex_round3_prompt.md`
-   주의: 같은 폴더에서 다른 Claude 세션(Orca 작업자 포함)이 끝나면 실행 중인 Codex 작업이 끊긴다. 검토 중에는 작업자를 띄우거나 닫지 않는다.
-6. 3차에서 치명, 높음 결함이 나오면 수정 후 재배포.
-7. 제출물: 시연 영상(5분, 음성 해설, 실제 작동과 모의 처리 구분, 배속 표시), 설계 설명 필수 6 + 선택 1문항(문항당 1,000자), 심사위원 실행 안내. 중간 제출 1회 후 최종 제출.
+## 남은 것
+1. Q3의 `[사용자 작성: ...]` 자리에 본인 경험 문장 쓰기.
+2. 시연 영상 촬영(대본 `submission/video_outline.md`), 편집, 재생 점검.
+3. 제출 폼: AXHub 앱 목록이 비어 있던 문제 확인(참가 신청 계정과 AXHub 계정이 같은지), 원고 붙여넣기와 글자 수 카운터 확인, 포트폴리오, 공개 동의, 제출.
+4. GitHub 공개 사본 `SWHee/sumgate` main이 7e1767e로 뒤처져 있다. 공개 사본을 쓴다면 19a1c34까지 푸시.
+5. (선택) AI 상신 초안에 가운뎃점이 섞이는 문제 수정과 재배포. 재배포하면 테이블 정의가 같아도 증거의 커밋이 바뀌므로 `DEPLOY_EVIDENCE.md` 버전 표기도 갱신. 마감 뒤에는 재배포가 제한된다.
+
+## 사용자만 할 수 있는 일
+- 제출 폼 입력, 업로드, 공개 동의, 제출. AXHub 계정과 제출 계정 연결 확인. Q3 본인 경험. 영상 녹음. 푸시 여부 결정.
 
 ## 알려진 한계
-- 실제 Claude API 호출 미검증(모킹 테스트만). 실제 병렬 HTTP 부하 미검증.
-- 은행 회신 전 지급 작업은 취소 가능하다는 모델 단순화. 로그인 없이 역할 쿠키로 전환(시연용).
-- 가정: 지급계좌는 마스터 정산계좌, 회계 마감 2026-07-03 17:00, 지급월은 정산월 다음 달.
-
-## 갱신 (2026-11-15 00:30). 위 내용과 다르면 이 절이 우선한다
-- 제품 이름은 모아봄(Moabom). 배포 완료: https://moabom-au27.axhub.app (lounge, 앱 이름 `moabom`, Postgres). GitHub: https://github.com/SWHee/sumgate (`main`).
-- 제출 원고 초안: `submission/design_answers.md`(Q1~Q7, 각 1,000자 이하), `run_note.md`, `video_outline.md`, `evidence.md`. 제출 절차와 실제 문항은 `SUBMISSION_GUIDE.md`.
-- 미해결: (1) 제출 폼의 AXHub 앱 목록이 비어 있음(참가 신청 계정과 AXHub 로그인 계정이 같은지 확인 필요). (2) `ANTHROPIC_API_KEY` 미등록(명령은 `RUN.md`). 등록 뒤 Q6, Q7 4번, run_note 6번, 영상 대본의 AI 문장을 고친다. (3) Q3의 본인 경험 문장은 사용자가 직접 쓴다. (4) Codex 3차 검토 미실행. (5) 사이트 리뷰에서 나온 `/docs` 주소 충돌, 공용 초기화와 재검증 해제 문제 재확인. (6) AXHub 로그인은 2026-11-15 20:20에 만료.
-- 제출 폼 입력, 업로드, 제출은 사용자가 직접 한다. 에이전트는 하지 않는다.
+- 역할 전환과 작업 공간은 쿠키로 구분하며 인증이 아니다. 은행과 대리점 회신, 승인 버튼은 모의 처리다.
+- 가정: 지급계좌는 마스터 정산계좌, 회계 마감 매월 3일 17:00, 지급월은 정산월 다음 달.
+- 원본 관련자 그룹은 하나뿐이고 변경과 거절 상황은 합성 입력이다.
+- 은행 회신 전 지급 작업은 취소할 수 있다고 단순화했다.
+- 대조 E는 합성 3건, AI 1회 측정이며 AI는 누락이 적지만 오류가 더 많다(AI 우위 없음).
+- 배포본 병렬 부하와 재배포 영속성은 미검증. 테이블 정의가 바뀐 배포는 작업 공간을 지운다.
+- 대리점 안내와 회차 목록 재생성 작업을 처리하는 화면 버튼은 없다.
