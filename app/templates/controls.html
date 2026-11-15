@@ -49,7 +49,7 @@
 <td>{% if m and m["점수"] %}{% set a = m["점수"]["필드"].values()|list %}{{ a|sum(attribute="정확") }}/{{ a|sum(attribute="누락") }}/{{ a|sum(attribute="오류") }}, 인용 근거 없음 {{ m["점수"]["인용"]["근거 없음"] }}{% elif m %}측정 실패(점수 없음){% else %}<b>미측정</b>{% endif %}</td>
 <td class="muted">{% if m %}{{ m["측정 시각"] }} (실제 시각), {{ m["추출기"] }}, {{ m["소요 ms"] }}ms{% endif %}</td>
 <td>{% if has_key %}<form class="inline" method="post" action="/controls/e/ai"><input type="hidden" name="name" value="{{ name }}"><button>이 문서 AI 측정(API 1회)</button></form>{% endif %}</td></tr>{% endfor %}</table>
-<p>{% if not has_key %}API 키가 없어 AI 추출은 미측정입니다. 성과로 주장하지 않습니다.{% else %}측정 결과는 내 작업 공간 DB에 저장되어 다시 열어도 보입니다. 견본 화면에서는 저장된 측정이 없으면 미측정입니다.{% endif %}</p>
+<p>{% if not has_key %}API 키가 없어 새 AI 측정을 할 수 없습니다. 측정하지 않은 문서는 성과로 주장하지 않습니다.{% else %}측정 결과는 내 작업 공간 DB에 저장되어 다시 열어도 보입니다. 견본 화면에서는 저장된 측정이 없으면 미측정입니다.{% endif %}</p>
 <details><summary>채점 기준</summary><ul>
 <li>필드마다 정답 항목과 추출 항목을 일대일로 짝짓습니다(최대 대응). 한 추출 항목은 정답 하나만 채웁니다.</li>
 <li>정확 = 짝지어진 정답, 누락 = 정답에 있는데 못 찾음, 오류 = 정답에 없는데 추출함.</li>

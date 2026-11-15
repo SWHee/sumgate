@@ -239,6 +239,16 @@ def test_control_e_one_doc_per_request_saved_in_workspace(db_url, monkeypatch, o
         page = cl.get("/controls").text
         assert "측정 실패(점수 없음)" in page and "AI 측정 0/3건" in page
 
+    # 인용은 원문에 있지만 값에 정답 핵심어가 없는 주장 하나: AI 0/5/1, 대체 5/0/1이라 나은 점이 없다
+    worse = {k: [] for k in ai.FIELDS} | {"claims": [{"value": "기타", "quote": "별도 증빙은 없습니다."}]}
+    orouter["reply"] = lambda: _resp(content=json.dumps(worse, ensure_ascii=False))
+    with TestClient(app) as cl:
+        cl.get("/")
+        cl.post("/controls/e/ai", data={"name": name})
+        page = cl.get("/controls").text
+        assert "<b>이 표본에서 AI가 대체 추출보다 나은 점이 없습니다.</b>" in page
+        assert "합계 비교: 정확 AI 0건, 대체 5건. 누락 AI 5건, 대체 0건. 오류 AI 1건, 대체 1건." in page
+
 
 def test_scenarios_never_call_ai(s, orouter):
     sc.s2(s)  # 정정 문서 접수와 상신이 들어 있다
