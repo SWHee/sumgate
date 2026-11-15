@@ -163,5 +163,5 @@
 ## 배포본에서 발견한 새 문제
 
 1. **AI 상신 초안에 가운뎃점(U+00B7).** (이후 수정: `app/ai.py`의 `draft`가 AI 서술의 가운뎃점을 쉼표로 바꾼다. 테스트 `test_ai_draft_never_contains_middle_dot`.) 재현: 내 작업 공간에서 지급계좌 회신 유효 후 #9 `영업임원에게 상신` → 사건 화면 `상신 문서 초안` 서술 요약에 `DP-00013(가운뎃점)DP-00014`. `app/ai.py`는 확정 판단 표현(FORBIDDEN 4개)만 검사하고 가운뎃점은 검사하지 않는다. TOPIC 7절 11(화면 문구에 가운뎃점 금지)에 걸린다. AI 출력이라 매번 나오지는 않을 수 있다. 코드는 고치지 않았다.
-2. (정정) GitHub 공개 사본은 뒤처지지 않았다. coordinator가 작업마다 푸시했고 `git ls-remote origin main`이 로컬 HEAD와 같음을 2026-11-15 12:10에 확인했다. 작업자가 옛 원격 참조를 본 것이다.
+2. **GitHub 공개 사본이 뒤처져 있었다(작업자 관찰이 맞았다).** 2026-11-14 22시 이후 `origin` 원격은 GitHub가 아니라 AXHub 저장소였고, coordinator가 `git push origin`과 `git ls-remote origin`으로 확인한 것은 AXHub 저장소였다. GitHub(`github` 원격, `SWHee/sumgate`)는 7e1767e에 머물러 있다가 2026-11-15 17:45에 ea11c96으로 올라갔다. 이후에는 두 원격을 따로 확인한다.
 3. (기존 한계 재확인) S3 뒤 대리점 안내와 회차 목록 재생성 작업이 `열림`으로 남고 처리 버튼이 없다.
