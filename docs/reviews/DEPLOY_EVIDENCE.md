@@ -1,3 +1,28 @@
+# 새 주소 재확인 (Google 계정 앱, 2026-11-15 17:45 KST)
+
+이 증거는 옛 주소(naver 계정 앱)에서 2026-11-15 11:50~12:04에 실행한 것이며, 같은 커밋 계열을 Google 계정 앱 https://moabom-pay-b1ax.axhub.app 로 다시 배포했다. 새 주소에서의 재확인 결과는 아래 표와 같다.
+
+- 앱: `moabom-pay`(표시 이름 모아봄 Moabom, ID 3c87e9d8-38a4-4ebb-b00d-cca1f8307df7), 소유자 Google 계정(user_id ff07ac57), 공개 범위 visibility internet, browse_policy open, docker, XS.
+- 버전: `axhub deploy status --app moabom-pay` 결과 `deployment 5759bf21 status=succeeded commit=ff060ca`(started_at 17:42:37 KST). 그 시점 `git rev-parse HEAD` = ff060ca. ff060ca는 a0a1e53에 배포 설정(axhub.yaml name)과 문서 주소만 바꾼 커밋이다.
+- 방법: curl과 쿠키 저장 파일(쿠키 A, 쿠키 B, 쿠키 없음). 환경변수 `OPENROUTER_API_KEY`(값 가림)를 등록한 뒤 다시 배포한 버전이다.
+
+| 버전 | 시각(KST) | 입력 | 예상 | 실제 |
+|---|---|---|---|---|
+| ff060ca | 17:45:13 | 첫 화면 GET(쿠키 없음) | 200, 견본 | 200, `견본(초기 상태, 읽기 전용)`, `전결 승인 대기 37건, 합계 33,271,715원` |
+| ff060ca | 17:45:13 | 상단 안내 줄 | AI 경로 OpenRouter | `AI 경로 OpenRouter(anthropic/claude-haiku-5.5)` |
+| ff060ca | 17:45:13 | 화면 하단 | 버전 표시 | `v1.1 2026-11-15, 스키마 ce4ee37b` |
+| ff060ca | 17:45:15 | GET `/docs` | 404 | 404 |
+| ff060ca | 17:45:15 | GET `/papers` | 문서 화면 | title `모아봄 문서` |
+| ff060ca | 17:45:17 | 쿠키 A, 모의 외부 > 문서 접수 COR-01_D-024.txt(정정 신고, 합성) | AI 구조화 | 303 → `/papers/1`, 8.69초. `AI 사용(OpenRouter anthropic/claude-haiku-5.5)`, `소요 7606ms`, `인용 검증 통과 7건, 근거 없음으로 버림 0건` |
+| ff060ca | 17:45:38 | 쿠키 A, 영업지원 > 시나리오 S1 실행 | 지급 완료 38건 | 303, 3.84초. `내 작업 공간 9bfefd1e`, `지급 완료 사건 38건`, 요약 `사건 상태: 지급 완료 38` |
+| ff060ca | 17:45:26 | 쿠키 B 첫 GET | 견본, 공간 생성 안 함 | `견본(초기 상태, 읽기 전용)`, `전결 승인 대기 37건`, 쿠키 파일에 `ws` 없음 |
+| ff060ca | 17:45:26 | 쿠키 B 초기화 POST 뒤 GET | B 공간, A 변경 안 보임 | 303, `내 작업 공간 ad518db9`, `전결 승인 대기 37건`. 같은 때 A는 `내 작업 공간 9bfefd1e`, 쿠키 없는 GET은 견본 |
+| ff060ca | 17:46 | `axhub apps get moabom-pay` | 공개, Google 소유 | visibility internet, browse_policy open, owner ff07ac57(Google) |
+
+첫 S1 POST(17:45:16)는 역할 쿠키가 비어 403(`역할 선택 안내`)이었고, 역할을 고른 뒤 다시 보낸 결과가 위 표다.
+
+---
+
 # 모아봄 배포본 증거 (T5, 2026-11-15)
 
 - 대상: https://moabom-au27.axhub.app (lounge, 앱 `moabom`)
