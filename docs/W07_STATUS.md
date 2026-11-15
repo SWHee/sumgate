@@ -3,7 +3,7 @@
 제출 마감: 2026-11-15(일) 23:59 KST. 설계서 `docs/W07_DESIGN.md`(v2, 9절과 v3 변경 우선), 주제와 금지사항 `TOPIC_W07.md`, 실행 방법 `RUN.md`, 제출 절차 `SUBMISSION_GUIDE.md`.
 
 ## 끝난 것
-- 배포: https://moabom-au27.axhub.app (lounge, 앱 `moabom`, Postgres). 배포 커밋 19a1c34 = 로컬 HEAD(배포 상태 명령으로 확인).
+- 배포: https://moabom-pay-b1ax.axhub.app (lounge, Google 계정 앱 `moabom-pay`, Postgres). 2026-11-15에 옛 naver 계정 앱(moabom-au27)에서 Google 계정 앱으로 다시 배포했다. 배포 커밋 = 로컬 HEAD(배포 상태 명령으로 확인).
 - 1차 개선(T1~T4, T6, T7): 문서 화면 `/papers`(기본 문서 경로 끔), 실제 AI(OpenRouter claude-haiku-5.5, 항목별 채택, 수정, 기각), 방문자별 작업 공간과 전역 스위치 제거, 대기열의 조치 사건과 사건 요약 카드, 대조 E 일대일 채점과 저장되는 AI 측정, 은행 회신 검증, 응답 속도 개선, 하단 버전 표시.
 - 배포본 증거(T5): `docs/reviews/DEPLOY_EVIDENCE.md`. S1 손 경로와 S1~S3 버튼, S2 손 경로(실제 AI 문서 확인 포함), 대조 E AI 측정 3건, 격리, 응답 시간.
 - 테스트: 로컬 SQLite 107 passed, 1 skipped. 병렬, 재시작 시험은 로컬 Docker Postgres에서 통과.

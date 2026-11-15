@@ -87,10 +87,10 @@ uv run pytest -q                 # 원본 수치, 경계값, 실패 조건 7개,
 키를 화면과 명령 기록에 남기지 않도록 `read -rs`로 입력받아 파이프로 넘긴다(입력 후 Enter):
 
 ```bash
-read -rs K && printf '%s' "$K" | ~/.axhub/bin/axhub env set OPENROUTER_API_KEY --app moabom --secret --stage runtime --from-stdin; unset K
+read -rs K && printf '%s' "$K" | ~/.axhub/bin/axhub env set OPENROUTER_API_KEY --app moabom-pay --secret --stage runtime --from-stdin; unset K
 ```
 
-환경변수는 **다시 배포해야 적용된다**(실행 중인 앱에 자동 반영되지 않음). 등록 뒤 프로젝트 폴더에서 `~/.axhub/bin/axhub deploy push --app moabom --execute --wait`로 재배포한다.
+환경변수는 **다시 배포해야 적용된다**(실행 중인 앱에 자동 반영되지 않음). 등록 뒤 프로젝트 폴더에서 `~/.axhub/bin/axhub deploy push --app moabom-pay --execute --wait`로 재배포한다.
 
 ## 5. Docker
 
@@ -126,7 +126,7 @@ docker rm -fv sumgate-app sumgate-pg && docker network rm sumgate-net
 
 ## 5-1. AXHub 배포 설정 (`axhub.yaml`)
 
-- 앱: `moabom`(테넌트 lounge, 공개 범위 「누구나」), 주소 https://moabom-au27.axhub.app (lounge는 주소 뒤 4자리를 서버가 정한다).
+- 앱: `moabom-pay`(표시 이름 모아봄 Moabom, Google 계정 소유, 테넌트 lounge, 공개 범위 「누구나」), 주소 https://moabom-pay-b1ax.axhub.app (lounge는 주소 뒤 4자리를 서버가 정한다).
 - 코드 저장 위치: AXHub 저장소(git 원격 `origin`)로 푸시하면 배포가 시작된다. GitHub 공개 사본은 원격 `github`(https://github.com/SWHee/sumgate)에 같은 커밋을 올린다.
 - 헬스 체크: 별도 경로 없이 `/`를 쓴다. 플랫폼이 5초마다 `GET /`를 보내고 200을 받는 것을 첫 배포 로그로 확인했다(시작 60초, 켜진 뒤 3초 안 응답 조건).
 
