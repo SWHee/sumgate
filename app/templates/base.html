@@ -58,5 +58,32 @@ textarea{width:100%;font-family:inherit}
 {% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
 {% block body %}{% endblock %}
 </main>
+<script>
+// 상태를 바꾸는 양식을 보내면 버튼을 "처리 중..."으로 바꾸고 중복 클릭을 막는다.
+// 비활성화는 다음 틱에: 같은 틱에 끄면 누른 버튼의 name/value가 양식 데이터에서 빠진다.
+document.addEventListener("submit", function (e) {
+  var f = e.target;
+  if ((f.method || "").toLowerCase() !== "post") return;
+  if (f.dataset.busy) { e.preventDefault(); return; }
+  f.dataset.busy = "1";
+  setTimeout(function () {
+    f.querySelectorAll("button, input[type=submit]").forEach(function (b) {
+      b.dataset.label = b.tagName === "BUTTON" ? b.textContent : b.value;
+      b.disabled = true;
+      if (b.tagName === "BUTTON") b.textContent = "처리 중..."; else b.value = "처리 중...";
+    });
+  }, 0);
+});
+// 뒤로 가기로 돌아온 화면(bfcache)에서는 버튼을 다시 켠다
+window.addEventListener("pageshow", function () {
+  document.querySelectorAll("form[data-busy]").forEach(function (f) {
+    delete f.dataset.busy;
+    f.querySelectorAll("button, input[type=submit]").forEach(function (b) {
+      b.disabled = false;
+      if (b.dataset.label !== undefined) { if (b.tagName === "BUTTON") b.textContent = b.dataset.label; else b.value = b.dataset.label; }
+    });
+  });
+});
+</script>
 </body>
 </html>

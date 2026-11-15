@@ -22,6 +22,7 @@ CONFIRMED_PM = ("원본", "확정(승인 시)")  # 지급 작업은 지급월이
 # 기본 도구 -------------------------------------------------------------
 def get(s: Session, key: str) -> str:
     row = s.get(Setting, key)
+    s.info[f"setting:{key}"] = row  # 세션 식별 맵은 약한 참조라 붙잡지 않으면 로그마다 시각을 다시 조회한다
     return row.value if row else ""
 
 
@@ -165,8 +166,9 @@ def cycle_totals(s) -> dict:
 
 
 # R5 지급계좌 확인 -------------------------------------------------------
-def account_state(s, aid: str, ags: dict, deps: list[dict]) -> tuple[str, list[str]]:
-    """(상태, 관련 입금 DP ID). 지급계좌는 마스터 정산계좌라는 가정. 회수 입금계좌는 지급에 쓰지 않는다."""
+def account_state(s, aid: str, ags: dict, deps: list[dict], done: set | None = None) -> tuple[str, list[str]]:
+    """(상태, 관련 입금 DP ID). 지급계좌는 마스터 정산계좌라는 가정. 회수 입금계좌는 지급에 쓰지 않는다.
+    done: 재판정이 한 번에 읽어 둔 완료된 지급계좌 확인 작업의 멱등 키(없으면 DB에서 조회)."""
     if aid not in ags:
         return "확인 필요(마스터 미등록)", []
     master = ags[aid]["account"]
@@ -176,6 +178,9 @@ def account_state(s, aid: str, ags: dict, deps: list[dict]) -> tuple[str, list[s
     if not diff:
         return "해당 없음", []
     key = f"acct:{aid}:{master}"  # 재확인 시도는 key#재확인N
+    if done is not None:
+        ok = key in done or any(k.startswith(f"{key}#") for k in done)
+        return ("확인 완료" if ok else "확인 필요"), diff
     done = s.scalar(select(Task).where(Task.type == "지급계좌 확인", Task.status == "완료",
                                        or_(Task.idem_key == key, Task.idem_key.like(f"{key}#%"))))
     return ("확인 완료" if done else "확인 필요"), diff
@@ -188,11 +193,24 @@ def relation_info(ag: dict) -> str:
 
 
 # 재판정 (R1~R6) ---------------------------------------------------------
-def rejudge(s: Session):
-    """공통 경로. P4 금액 확인, P3 지급 진행 중 사건 재검증, P2 (그룹, 지급월)당 열린 사건 하나, P1 재합산."""
+def _case_reqs(s, ctx: dict, case_id) -> list[RebateRequest]:
+    """재판정 안에서는 한 번 읽은 요청(rebate_id 순, 세션의 같은 객체)을 걸러 쓴다(N+1 제거). 그 밖에서는 DB 조회."""
+    if "live" in ctx:
+        return [r for r in ctx["live"] if r.case_id == case_id]
+    return case_requests(s, case_id)
+
+
+def rejudge(s: Session) -> dict:
+    """공통 경로. P4 금액 확인, P3 지급 진행 중 사건 재검증, P2 (그룹, 지급월)당 열린 사건 하나, P1 재합산.
+    돌려주는 ctx는 이 요청 안에서만 쓴다(요청, 작업 상태를 한 번에 읽어 둔 것)."""
     ctx = context(s)
     live = list(s.scalars(select(RebateRequest).where(RebateRequest.status != HISTORY)
                           .order_by(RebateRequest.rebate_id)))
+    # 재판정 중에는 완료된 지급계좌 확인이 생기지 않고, 관계 정보 충분 여부는 거래처마다 하나라 미리 읽어도 같다
+    ctx["live"] = live
+    ctx["cases"] = by_id = {}  # 사건 객체를 붙잡아 같은 요청 안의 s.get이 다시 조회하지 않게 한다
+    ctx["acct_done"] = set(s.scalars(select(Task.idem_key).where(Task.type == "지급계좌 확인", Task.status == "완료")))
+    ctx["relinfo_open"] = list(s.scalars(select(Task).where(Task.type == "관계 정보 확인", Task.status == "열림")))
     changed = set()
     for r in live:
         if r.status == "진행" and r.amount <= 0:
@@ -208,7 +226,7 @@ def rejudge(s: Session):
     for c in cases:
         if c.status in IN_FLIGHT:
             gate(s, c, ctx)
-    by_id = {c.id: c for c in cases}
+    by_id.update({c.id: c for c in cases})
     canon = {}
     # P1(R4): 같은 (그룹, 지급월)에서 지급 완료 전 요청은 모두 가장 앞선 열린 사건 하나로 모은다.
     # 지급 진행 중인 사건도 열린 사건이다. 지급 완료된 요청만 제자리에 남고 기지급액으로 합산된다
@@ -245,6 +263,7 @@ def rejudge(s: Session):
     for c in by_id.values():
         if c.status not in FROZEN and c.status != DISSOLVED:
             refresh(s, c, ctx)
+    return ctx
 
 
 def cancel_payments(s, case_id) -> list[str]:
@@ -299,19 +318,22 @@ def build_basis(s, c: Case, ctx: dict) -> dict:
     이 사건 요청(지급 완료 전 요청은 모두 이 사건에 모여 있다) + 다른 사건에서 지급 완료된 요청 + 원본 기지급.
     """
     ags, group_of = ctx["ags"], ctx["group_of"]
-    reqs = [r for r in case_requests(s, c.id) if r.status != NEEDS_CHECK]
+    reqs = [r for r in _case_reqs(s, ctx, c.id) if r.status != NEEDS_CHECK]
     members = sorted({m for r in reqs for m in group_of.get(r.agency_id, r.agency_id).split("+")}) \
         or c.group_key.split("+")
     own = {r.rebate_id for r in reqs}
-    others = [r for r in s.scalars(select(RebateRequest).where(
-        RebateRequest.agency_id.in_(members), RebateRequest.pay_month == c.pay_month,
-        RebateRequest.status == "지급 완료").order_by(RebateRequest.rebate_id)) if r.rebate_id not in own]
+    paid_reqs = ([r for r in ctx["live"] if r.agency_id in members and r.pay_month == c.pay_month
+                  and r.status == "지급 완료"] if "live" in ctx else
+                 s.scalars(select(RebateRequest).where(
+                     RebateRequest.agency_id.in_(members), RebateRequest.pay_month == c.pay_month,
+                     RebateRequest.status == "지급 완료").order_by(RebateRequest.rebate_id)))
+    others = [r for r in paid_reqs if r.rebate_id not in own]
     paid_hist = rules.already_paid(ctx["hist"], members, c.pay_month)
     paid = paid_hist + sum(r.amount for r in others)
     total = sum(r.amount for r in reqs) + paid
     accounts = {}
     for m in members:
-        st, dps = account_state(s, m, ags, ctx["deps"])
+        st, dps = account_state(s, m, ags, ctx["deps"], ctx.get("acct_done"))
         accounts[m] = {"지급계좌(마스터 정산계좌)": ags[m]["account"] if m in ags else "미등록", "확인": st,
                        "다른 입금 관측": dps}
     return {
@@ -348,7 +370,7 @@ def computed_status(c: Case) -> str:
 
 
 def refresh(s, c: Case, ctx: dict):
-    reqs = case_requests(s, c.id)
+    reqs = _case_reqs(s, ctx, c.id)
     if not reqs:
         transition(s, c, DISSOLVED, detail="재판정 결과 이 사건에 남은 요청이 없음")
         return
@@ -376,9 +398,9 @@ def refresh(s, c: Case, ctx: dict):
                      agency_id=m["거래처"], payload={"사유": f"{m['관계 정보']}. 대표자, 주소, 정산계좌 중 2개 이상 있어야 "
                                                        "관계를 판정할 수 있음. 마스터 정정 신고로 보완"})
         elif "관계 정보" in m:
-            for t in s.scalars(select(Task).where(Task.type == "관계 정보 확인", Task.status == "열림",
-                                                  Task.agency_id == m["거래처"])):
-                t.status = "완료"
+            for t in ctx["relinfo_open"]:
+                if t.agency_id == m["거래처"] and t.status == "열림":
+                    t.status = "완료"
     if c.status in PRE:
         transition(s, c, computed_status(c), detail=f"합계 {c.total:,}원, {c.route}")
     elif c.status == "승인 대기" and h != c.submitted_hash:
@@ -463,19 +485,24 @@ def submit(s: Session, case_id: int, actor="영업지원 담당자", use_ai=True
 def approve(s: Session, case_id: int, role: str, actor: str | None = None):
     s.expire_all()  # R1: 세션에 남은 옛 객체가 아니라 DB 최신 상태로 판단. 쓰는 순간의 경합은 Case.version이 막는다
     rejudge(s)
-    c = _case(s, case_id)
+    _approve(s, _case(s, case_id), role, actor, context(s))
+    s.commit()
+
+
+def _approve(s, c: Case, role: str, actor: str | None, ctx: dict):
+    """승인 핵심부(재판정과 커밋 없음). 승인은 이 사건 요청의 지급월 등급만 바꾸므로 다른 사건의 근거에 영향이 없다."""
     need = {"전결 승인 대기": "영업지원", "승인 대기": "영업임원"}.get(c.status)
     if need is None:
         raise ValueError(f"승인할 수 없는 상태: {c.status}")
     if role != need:
         raise PermissionError(f"이 사건의 승인권자는 {need}입니다")
     # F7: 승인이 지급 회차를 확정한다. 등급을 바꾼 뒤의 근거로 승인 해시를 고정한다
-    for r in case_requests(s, c.id):
+    for r in _case_reqs(s, ctx, c.id):
         if r.status == "진행" and r.pay_month_grade not in CONFIRMED_PM:
             r.pay_month_grade = "확정(승인 시)"
             r.pay_month_reason = f"{r.pay_month_reason}; {now(s)} 승인으로 {c.pay_month} 회차 확정".lstrip("; ")
     s.flush()
-    _stamp(c, build_basis(s, c, context(s)))
+    _stamp(c, build_basis(s, c, ctx))
     if c.status == "승인 대기":
         c.submitted_hash = c.basis_hash
     a = Approval(case_id=c.id, role=role, decision="승인", basis_hash=c.basis_hash, basis_json=c.basis_json,
@@ -485,13 +512,16 @@ def approve(s: Session, case_id: int, role: str, actor: str | None = None):
     log(s, actor or role, "사람", "승인", f"사건 {c.id}",
         f"승인 {a.id}, 근거 해시 {c.basis_hash[:12]}, {c.pay_month} 회차 지급 확정")
     transition(s, c, "승인됨", actor or role, "사람")
-    s.commit()
 
 
 def approve_all_support(s: Session, actor="영업지원 담당자") -> int:
+    """재판정은 처음 한 번만 하고 커밋도 한 번. 승인 하나가 다른 사건의 근거를 바꾸지 않아 건별 재판정과 결과가 같다."""
     ids = [c.id for c in s.scalars(select(Case).where(Case.status == "전결 승인 대기").order_by(Case.id))]
+    s.expire_all()
+    ctx = rejudge(s)
     for i in ids:
-        approve(s, i, "영업지원", actor)
+        _approve(s, _case(s, i), "영업지원", actor, ctx)
+    s.commit()
     return len(ids)
 
 
@@ -532,25 +562,28 @@ def execute(s: Session, case_id: int, actor="회계") -> bool:
     c = _case(s, case_id)
     if c.status != "승인됨":
         raise ValueError(f"실행할 수 없는 상태: {c.status}")
+    ok = _execute(s, c, actor, context(s))
+    s.commit()
+    return ok
+
+
+def _execute(s, c: Case, actor: str, ctx: dict) -> bool:
+    """실행 핵심부(재판정과 커밋 없음). 실행은 이 사건의 지급 작업만 만들어 다른 사건의 근거에 영향이 없다."""
     transition(s, c, "실행 전 재검증", actor, "사람", "지급 실행 요청")
-    ctx = context(s)
     if not gate(s, c, ctx):
-        s.commit()
         return False
     a = latest_approval(s, c)
     basis = json.loads(c.basis_json)
     if blocked(basis):  # 근거 해시에 포함되므로 여기 올 일은 없지만 지급 전 마지막 방어선
         transition(s, c, "확인 필요", detail="지급계좌 미확인")
-        s.commit()
         return False
     if a.basis_hash == c.basis_hash:
         log(s, "시스템", "시스템", "재검증 통과", f"사건 {c.id}", f"승인 {a.id} 근거 해시 일치")
-    todo = [r for r in case_requests(s, c.id) if r.status == "진행"]  # 이미 지급 완료된 요청은 다시 지급하지 않는다
+    todo = [r for r in _case_reqs(s, ctx, c.id) if r.status == "진행"]  # 이미 지급 완료된 요청은 다시 지급하지 않는다
     bad = [f"{r.rebate_id}: {why}" for r in todo if (why := unpayable(r, ctx["ags"]))]
     if bad:
         a.valid, a.invalid_reason = False, "지급 정보 부족: " + ", ".join(bad)
         transition(s, c, "확인 필요", detail=a.invalid_reason)
-        s.commit()
         return False
     for r in todo:  # 멱등 키 pay:요청ID는 승인 ID와 무관하게 활성 지급 작업을 요청당 하나로 묶는다(R1)
         add_task(s, "회계 지급", "회계", f"pay:{r.rebate_id}", case_id=c.id, request_id=r.rebate_id,
@@ -560,13 +593,21 @@ def execute(s: Session, case_id: int, actor="회계") -> bool:
     for t in s.scalars(select(Task).where(Task.case_id == c.id, Task.type == "회계 지급", Task.status == "열림")):
         t.status = "지급 대기"
     transition(s, c, "지급 작업 생성")
-    s.commit()
     return True
 
 
 def execute_all(s: Session, actor="회계") -> dict:
+    """재판정은 처음 한 번만 하고 커밋도 한 번. 각 사건은 건별 실행과 같은 재검증 게이트를 지난다."""
     ids = [c.id for c in s.scalars(select(Case).where(Case.status == "승인됨").order_by(Case.id))]
-    res = {i: execute(s, i, actor) for i in ids}
+    s.expire_all()
+    ctx = rejudge(s)
+    res = {}
+    for i in ids:
+        c = _case(s, i)
+        if c.status != "승인됨":
+            raise ValueError(f"실행할 수 없는 상태: {c.status}")
+        res[i] = _execute(s, c, actor, ctx)
+    s.commit()
     return {"통과": sum(res.values()), "차단": len(res) - sum(res.values())}
 
 
@@ -584,17 +625,21 @@ def _sync_case_payment(s, case_id):
 
 
 def bank_reply(s: Session, task_id: int, result: str, actor="모의 은행"):
+    _bank_reply(s, task_id, result, actor)
+    s.commit()
+
+
+def _bank_reply(s, task_id: int, result: str, actor: str):
+    """은행 회신 핵심부(커밋 없음). 재판정을 하지 않는 전이다."""
     t = s.get(Task, task_id)
     if not t or t.type != "회계 지급":
         raise ValueError("회계 지급 작업이 아님")
     if t.status == "취소":
         log(s, actor, "모의 외부", "취소된 지급 작업 회신 무시", f"작업 {t.id}", f"회신 {result}: 근거 변경으로 취소된 작업",
             "모의 회신")
-        s.commit()
         return
     if t.status != "지급 대기":
         log(s, actor, "모의 외부", "중복 회신 무시", f"작업 {t.id}", f"현재 {t.status}, 회신 {result}", "모의 회신")
-        s.commit()
         return
     log(s, actor, "모의 외부", "은행 회신", f"작업 {t.id}", f"{t.request_id}: {result}", "모의 회신")
     t.grade = "모의 회신"
@@ -607,15 +652,15 @@ def bank_reply(s: Session, task_id: int, result: str, actor="모의 은행"):
         add_task(s, "은행 재처리", "회계", f"retry:{t.id}:{n + 1}", case_id=t.case_id, request_id=t.request_id,
                  agency_id=t.agency_id, payload={"지급 작업": t.id, "사유": "은행 반려 회신. 지급 완료가 아님"})
     _sync_case_payment(s, t.case_id)
-    s.commit()
 
 
 def bank_reply_all(s: Session, result="성공") -> int:
-    ids = [t.id for t in s.scalars(select(Task).where(Task.type == "회계 지급", Task.status == "지급 대기")
-                                   .order_by(Task.id))]
-    for i in ids:
-        bank_reply(s, i, result)
-    return len(ids)
+    tasks = list(s.scalars(select(Task).where(Task.type == "회계 지급", Task.status == "지급 대기")
+                           .order_by(Task.id)))  # 객체를 붙잡아 둬 건별 s.get이 다시 조회하지 않는다
+    for t in tasks:
+        _bank_reply(s, t.id, result, "모의 은행")
+    s.commit()
+    return len(tasks)
 
 
 def retry_payment(s: Session, retry_task_id: int, actor="회계") -> bool:
