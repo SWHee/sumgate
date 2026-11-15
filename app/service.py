@@ -369,6 +369,69 @@ def computed_status(c: Case) -> str:
     return "전결 승인 대기" if b["경로"] == rules.ROUTE_SUPPORT else "상위 승인 필요"
 
 
+BULK = ("전결 승인 대기", "승인됨", "지급 작업 생성")  # 전결 경로에서 이 상태면 일괄 처리 대상
+DONE = ("지급 완료", DISSOLVED)
+
+
+def next_step(c: Case, tasks: list[Task], docs: list[Doc]) -> dict:
+    """화면 표시용: 사건 상태와 열린 작업, 확인 대기 문서에서 막힌 이유, 다음 담당자(역할), 다음 행동을 도출한다.
+
+    상태를 바꾸지 않는 순수 함수. role은 그 행동의 서버 역할 검사(forbid)가 허용하는 역할, where는 행동할 화면.
+    대리점 안내와 회차 목록 재생성 작업은 닫히지 않으므로 막힌 이유에 쓰지 않는다.
+    """
+    def step(reason, role="", action="", where=""):
+        return {"reason": reason, "role": role, "action": action, "where": where or f"/cases/{c.id}"}
+
+    st = c.status
+    mine = [t for t in tasks if t.case_id == c.id]
+    acct = [t for t in mine if t.type == "지급계좌 확인"]
+    doc = next((d for d in docs if d.case_id == c.id and d.status == "확인 대기"), None)
+    if st in DONE:
+        return step(st)
+    if st == "확인 필요":
+        if t := next((t for t in acct if t.status == "열림"), None):
+            return step(f"{t.agency_id} 지급계좌 확인 회신 대기", "모의 외부", "모의 외부 역할로 지급계좌 확인 회신", "/tasks")
+        if t := next((t for t in acct if t.status == "확인 불가"), None):
+            return step(f"{t.agency_id} 지급계좌 확인 불가 회신", "영업지원", "영업지원 역할로 지급계좌 다시 확인 요청",
+                        "/tasks")
+        if t := next((t for t in mine if t.type == "관계 정보 확인" and t.status == "열림"), None):
+            if doc:
+                return step(f"{t.agency_id} 정정 신고 확인 전", "영업지원", "영업지원 역할로 문서에서 정정 확인",
+                            f"/papers/{doc.id}")
+            return step(f"{t.agency_id} 관계 정보 부족", "모의 외부", "모의 외부 역할로 정정 신고 입력", "/mock")
+        return step("지급 정보 확인 전", "영업지원", "영업지원 역할로 아래 근거와 작업 확인")
+    if st == "상위 승인 필요":
+        return step("영업임원 상신 전", "영업지원", "영업지원 역할로 영업임원에게 상신")
+    if st == "승인 무효(재상신)":
+        return step("승인 뒤 근거가 바뀌어 승인 무효", "영업지원", "영업지원 역할로 재상신")
+    if st == "전결 승인 대기":
+        return step("전결 승인 대기", "영업지원", "영업지원 역할로 전결 승인")
+    if st == "승인 대기":
+        return step("영업임원 승인 대기", "영업임원", "영업임원 역할로 승인 또는 거절")
+    if st == "거절됨":
+        if doc:
+            return step("소명 확인 전", "영업지원", "영업지원 역할로 문서에서 소명 확인", f"/papers/{doc.id}")
+        return step("영업임원 거절, 소명 회신 대기", "모의 외부", "모의 외부 역할로 소명 회신 입력", "/mock")
+    if st == "승인됨":
+        return step("지급 실행 요청 전", "회계", "회계 역할로 지급 실행 요청")
+    if st == "지급 작업 생성":
+        return step("은행 회신 대기", "모의 외부", "모의 외부 역할로 은행 회신", "/tasks")
+    if st == "지급 반려(재처리)":
+        if any(t.type == "은행 재처리" and t.status == "열림" for t in mine):
+            return step("은행 반려, 재처리 요청 전", "회계", "회계 역할로 재처리 요청", "/tasks")
+        return step("재처리 뒤 은행 회신 대기", "모의 외부", "모의 외부 역할로 은행 회신", "/tasks")
+    return step(f"{st} 처리 중")
+
+
+def guide(cases: list[Case], tasks: list[Task]) -> list[tuple[str, bool]]:
+    """처음 온 사람을 위한 세 단계 안내와 각 단계의 완료 여부(화면 표시용, 순수 함수)."""
+    return [("영업지원: 전결 일괄 승인",
+             not any(c.status == "전결 승인 대기" and c.route == rules.ROUTE_SUPPORT for c in cases)),
+            ("모의 외부: 지급계좌 확인 회신", not any(t.type == "지급계좌 확인" and t.status == "열림" for t in tasks)),
+            ("영업지원 상신 뒤 영업임원: 그룹 사건 승인",
+             not any(c.route == rules.ROUTE_EXEC and c.status not in APPROVED + DONE for c in cases))]
+
+
 def refresh(s, c: Case, ctx: dict):
     reqs = _case_reqs(s, ctx, c.id)
     if not reqs:

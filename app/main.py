@@ -141,7 +141,17 @@ def queue(req: Request):
             grades.setdefault(r.case_id, set()).update({r.grade, r.pay_month_grade})
         checks = list(s.scalars(select(RebateRequest).where(RebateRequest.status == sv.NEEDS_CHECK)
                                 .order_by(RebateRequest.rebate_id)))
-        return page(req, "queue.html", s, cases=cases, grades=grades, deadline=rules.deadline_of, checks=checks)
+        ts = list(s.scalars(select(Task)))
+        docs = list(s.scalars(select(Doc).where(Doc.status == "확인 대기")))
+        steps = {c.id: sv.next_step(c, ts, docs) for c in cases}
+        bulk = [c for c in cases if c.route == rules.ROUTE_SUPPORT and c.status in sv.BULK]
+        done = [c for c in cases if c.status in sv.DONE]
+        todo = [c for c in cases if c not in bulk and c not in done]
+        bulk_st = {}
+        for c in bulk:
+            bulk_st[c.status] = bulk_st.get(c.status, 0) + 1
+        return page(req, "queue.html", s, todo=todo, bulk=bulk, done=done, steps=steps, bulk_st=bulk_st,
+                    guide=sv.guide(cases, ts), grades=grades, deadline=rules.deadline_of, checks=checks)
 
 
 @app.post("/bulk/approve-support")
@@ -173,10 +183,11 @@ def case_detail(req: Request, cid: int):
             AgencyVersion.agency_id.in_([m["거래처"] for m in basis["구성원"]])))}
         draft = s.scalars(select(Doc).where(Doc.case_id == cid, Doc.kind == "상신 초안").order_by(Doc.id.desc())).first()
         tasks = list(s.scalars(select(Task).where(Task.case_id == cid).order_by(Task.id)))
+        step = sv.next_step(c, tasks, list(s.scalars(select(Doc).where(Doc.case_id == cid, Doc.status == "확인 대기"))))
         events = list(s.scalars(select(EventLog).where(EventLog.ref.in_([f"사건 {cid}"] + [r.rebate_id for r in reqs]))
                                 .order_by(EventLog.id)))
         return page(req, "case.html", s, c=c, basis=basis, reqs=reqs, per_agency=per_agency, approvals=approvals,
-                    draft=draft, tasks=tasks, events=events, deadline=rules.deadline_of(c.pay_month),
+                    draft=draft, tasks=tasks, events=events, step=step, deadline=rules.deadline_of(c.pay_month),
                     ver_grade=ver_grade, ver={m["거래처"]: m["마스터 버전"] for m in basis["구성원"]})
 
 

@@ -1,26 +1,57 @@
 {% extends "base.html" %}{% set refresh = True %}
 {% block title %}대기열{% endblock %}
 {% block body %}
-<section><h2>승인 사건 대기열 {{ real() }}</h2>
-<p class="muted">사건 = (관련자 그룹, 지급월). 관련자 판정, 합산, 승인 경로는 고정 규칙 코드가 계산합니다(AI 미관여). 5초마다 다시 불러옵니다.</p>
-<p>
-{% if role == "영업지원" %}<form class="inline" method="post" action="/bulk/approve-support"><button>전결 승인 대기 사건 일괄 승인 (영업지원)</button></form> <span class="muted">승인하면 각 사건의 회차(지급월) 지급이 확정됩니다.</span>{% endif %}
-{% if role == "회계" %}<form class="inline" method="post" action="/bulk/execute"><button>승인된 사건 일괄 실행 요청 (실행 전 재검증)</button></form>{% endif %}
-<span class="muted">입금계좌 대조: 항상 켬(끔과의 비교는 대조 화면에서 계산으로 봅니다)</span>
-</p>
-<table><tr><th>사건</th><th>구성원</th><th>회차(지급월)</th><th class="num">합계(원)</th><th>승인 경로</th><th>상태</th><th>등급</th></tr>
-{% for c in cases %}
+{% macro head(extra) %}<tr><th>사건</th><th>구성원</th><th>회차(지급월)</th><th class="num">합계(원)</th><th>승인 경로</th><th>상태</th><th>등급</th>{% if extra %}<th>막힌 이유</th><th>다음 담당자</th><th>다음 행동</th>{% endif %}</tr>{% endmacro %}
+{% macro row(c, extra) %}
 <tr><td><a href="/cases/{{ c.id }}">#{{ c.id }}</a></td>
 <td>{{ c.group_key.replace("+", ", ") }}</td>
 <td>{{ c.pay_month }} <span class="muted">(마감 {{ deadline(c.pay_month).strftime("%m-%d %H:%M") }})</span>{% if "가정" in grades.get(c.id, []) %} {{ grade("가정") }}<b>미확인</b>{% endif %}</td>
 <td class="num">{{ c.total|won }}</td>
 <td class="{{ 'st st-up' if c.route == '영업임원 승인' else '' }}">{{ c.route }}</td>
 <td class="st {{ 'st-ok' if c.status == '지급 완료' else ('st-up' if c.status in ['확인 필요','상위 승인 필요','승인 무효(재상신)','거절됨','지급 반려(재처리)'] else 'st-wait') }}">{{ c.status }}{% if c.status in ["지급 완료", "지급 반려(재처리)"] %} {{ grade("모의 회신") }}{% endif %}</td>
-<td>{{ grade(c.grade) }}{% for g in grades.get(c.id, [])|sort %}{% if g != "가정" %}{{ grade(g) }}{% endif %}{% endfor %}</td></tr>
-{% endfor %}
-</table></section>
+<td>{{ grade(c.grade) }}{% for g in grades.get(c.id, [])|sort %}{% if g != "가정" %}{{ grade(g) }}{% endif %}{% endfor %}</td>
+{% if extra %}{% set n = steps[c.id] %}<td class="st st-up">{{ n.reason }}</td><td>{{ n.role }}</td><td>{% if n.action %}<a href="{{ n.where }}">{{ n.action }}</a>{% endif %}</td>{% endif %}</tr>
+{% endmacro %}
+{% set ns = namespace(cur=-1) %}{% for text, ok in guide %}{% if not ok and ns.cur < 0 %}{% set ns.cur = loop.index0 %}{% endif %}{% endfor %}
+<p class="msg"><b>처음이라면:</b>
+{% for text, ok in guide %}{% if loop.index0 == ns.cur %}<b class="st st-up">{{ loop.index }}. {{ text }} (지금 할 단계)</b>{% else %}<span class="{{ 'muted' if ok }}">{{ loop.index }}. {{ text }}{% if ok %} (완료){% endif %}</span>{% endif %}{% if not loop.last %} &gt; {% endif %}{% endfor %}
+{% if ns.cur < 0 %} <b>세 단계를 마쳤습니다. 아래 조치가 필요한 사건을 이어서 처리합니다.</b>{% endif %}
+<a href="/scenarios">시나리오 화면에서 자동 실행</a></p>
+
+<section><h2>승인 사건 대기열: 조치가 필요한 사건 {{ real() }}</h2>
+<p class="muted">사건 = (관련자 그룹, 지급월). 관련자 판정, 합산, 승인 경로는 고정 규칙 코드가 계산합니다(AI 미관여). 막힌 이유와 다음 행동은 사건 상태와 열린 작업에서 코드가 도출합니다. 5초마다 다시 불러옵니다.</p>
+{% if todo %}<table>{{ head(True) }}
+{% for c in todo %}{{ row(c, True) }}{% endfor %}
+</table>{% else %}<p>지금 사람의 판단이나 외부 회신을 기다리는 사건이 없습니다.</p>{% endif %}
+</section>
+
+<section><h2>전결 일괄 처리 사건 {{ bulk|length }}건 {{ real() }}</h2>
+<p>
+{% if role == "영업지원" %}<form class="inline" method="post" action="/bulk/approve-support"><button>전결 승인 대기 사건 일괄 승인 (영업지원)</button></form> <span class="muted">승인하면 각 사건의 회차(지급월) 지급이 확정됩니다.</span>{% endif %}
+{% if role == "회계" %}<form class="inline" method="post" action="/bulk/execute"><button>승인된 사건 일괄 실행 요청 (실행 전 재검증)</button></form>{% endif %}
+<span class="muted">입금계좌 대조: 항상 켬(끔과의 비교는 대조 화면에서 계산으로 봅니다)</span>
+</p>
+{% if bulk %}<details id="bulk"><summary>{% for k, v in bulk_st.items() %}{{ k }} {{ v }}건{% if not loop.last %}, {% endif %}{% endfor %}, 합계 {{ bulk|sum(attribute="total")|won }}원 (펼쳐서 사건별 보기)</summary>
+<table>{{ head(False) }}
+{% for c in bulk %}{{ row(c, False) }}{% endfor %}
+</table></details>{% else %}<p class="muted">일괄 처리를 기다리는 전결 사건이 없습니다.</p>{% endif %}
+</section>
+
+{% if done %}<section><h2>지급 완료 사건 {{ done|length }}건 {{ real() }}</h2>
+<details id="done"><summary>지급 완료 또는 해소된 사건 {{ done|length }}건 (펼쳐서 보기)</summary>
+<table>{{ head(False) }}
+{% for c in done %}{{ row(c, False) }}{% endfor %}
+</table></details></section>{% endif %}
+
 {% if checks %}<section><h2>확인 필요 요청 (합산과 지급에서 제외) {{ real() }}</h2>
 <p class="muted">금액이 0 이하인 요청은 사건에 넣지 않고 지급 작업도 만들지 않습니다. 차감이나 상계는 하지 않습니다. 금액이 정정되면 다시 판정합니다.</p>
 <table><tr><th>요청</th><th>거래처</th><th>정산월</th><th class="num">금액(원)</th><th>등급</th></tr>
 {% for r in checks %}<tr><td>{{ r.rebate_id }}</td><td>{{ r.agency_id }}</td><td>{{ r.period_ym }}</td><td class="num">{{ r.amount|won }}</td><td>{{ grade(r.grade) }}</td></tr>{% endfor %}</table></section>{% endif %}
+<script>
+// 5초 자동 갱신 뒤에도 펼친 목록을 그대로 둔다(이 브라우저에만 저장)
+document.querySelectorAll("details[id]").forEach(function (d) {
+  try { if (sessionStorage.getItem("open:" + d.id) === "1") d.open = true; } catch (e) {}
+  d.addEventListener("toggle", function () { try { sessionStorage.setItem("open:" + d.id, d.open ? "1" : "0"); } catch (e) {} });
+});
+</script>
 {% endblock %}
