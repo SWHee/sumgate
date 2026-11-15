@@ -690,24 +690,41 @@ def _sync_case_payment(s, case_id):
         transition(s, c, "지급 작업 생성")
 
 
-def bank_reply(s: Session, task_id: int, result: str, actor="모의 은행"):
-    _bank_reply(s, task_id, result, actor)
+BANK_RESULTS = ("성공", "반려")
+
+
+class BankRejected(ValueError):
+    """은행 회신 거부. 상태는 바꾸지 않고 거부 사유만 이력에 남긴다."""
+
+
+def bank_reply(s: Session, task_id: int, result: str, actor="모의 은행", reason=""):
+    try:
+        _bank_reply(s, task_id, result, actor, reason)
+    except BankRejected:
+        s.commit()  # 거부도 이력은 남긴다. 상태 변경은 거부 판단 앞에서 하지 않는다
+        raise
     s.commit()
 
 
-def _bank_reply(s, task_id: int, result: str, actor: str):
+def _reject(s, actor, ref, why):
+    log(s, actor, "모의 외부", "은행 회신 거부", ref, why, "모의 회신")
+    raise BankRejected(why)
+
+
+def _bank_reply(s, task_id: int, result: str, actor: str, reason="", lock=True):
     """은행 회신 핵심부(커밋 없음). 재판정을 하지 않는 전이다."""
-    t = s.get(Task, task_id)
+    if result not in BANK_RESULTS:
+        _reject(s, actor, f"작업 {task_id}", f"회신 값은 성공 또는 반려만 받습니다(받은 값: {result!r})")
+    # 같은 작업에 동시에 온 회신은 행 잠금으로 줄을 세운다. 뒤의 회신은 바뀐 상태를 보고 거부된다(Postgres)
+    t = s.get(Task, task_id, with_for_update=True, populate_existing=True) if lock else s.get(Task, task_id)
     if not t or t.type != "회계 지급":
-        raise ValueError("회계 지급 작업이 아님")
+        _reject(s, actor, f"작업 {task_id}", f"없는 작업이거나 회계 지급 작업이 아님, 회신 {result}")
     if t.status == "취소":
-        log(s, actor, "모의 외부", "취소된 지급 작업 회신 무시", f"작업 {t.id}", f"회신 {result}: 근거 변경으로 취소된 작업",
-            "모의 회신")
-        return
+        _reject(s, actor, f"작업 {t.id}", f"근거 변경으로 취소된 작업, 회신 {result}")
     if t.status != "지급 대기":
-        log(s, actor, "모의 외부", "중복 회신 무시", f"작업 {t.id}", f"현재 {t.status}, 회신 {result}", "모의 회신")
-        return
-    log(s, actor, "모의 외부", "은행 회신", f"작업 {t.id}", f"{t.request_id}: {result}", "모의 회신")
+        _reject(s, actor, f"작업 {t.id}", f"이미 {t.status} 상태인 작업, 회신 {result}")
+    log(s, actor, "모의 외부", "은행 회신", f"작업 {t.id}",
+        f"{t.request_id}: {result}" + (f", 사유 {reason or '사유 미기재'}" if result == "반려" else ""), "모의 회신")
     t.grade = "모의 회신"
     if result == "성공":
         t.status = "지급 완료"
@@ -716,15 +733,22 @@ def _bank_reply(s, task_id: int, result: str, actor: str):
         t.status = "지급 반려"
         n = len(list(s.scalars(select(Task).where(Task.type == "은행 재처리", Task.request_id == t.request_id))))
         add_task(s, "은행 재처리", "회계", f"retry:{t.id}:{n + 1}", case_id=t.case_id, request_id=t.request_id,
-                 agency_id=t.agency_id, payload={"지급 작업": t.id, "사유": "은행 반려 회신. 지급 완료가 아님"})
+                 agency_id=t.agency_id, payload={"지급 작업": t.id, "사유": "은행 반려 회신. 지급 완료가 아님",
+                                                 "반려 사유": reason.strip() or "사유 미기재"})
     _sync_case_payment(s, t.case_id)
 
 
 def bank_reply_all(s: Session, result="성공") -> int:
+    if result not in BANK_RESULTS:
+        try:
+            _reject(s, "모의 은행", "지급 대기 전체", f"회신 값은 성공 또는 반려만 받습니다(받은 값: {result!r})")
+        except BankRejected:
+            s.commit()
+            raise
     tasks = list(s.scalars(select(Task).where(Task.type == "회계 지급", Task.status == "지급 대기")
-                           .order_by(Task.id)))  # 객체를 붙잡아 둬 건별 s.get이 다시 조회하지 않는다
+                           .order_by(Task.id).with_for_update()))  # 한 번에 잠그고 붙잡아 둬 건별로 다시 조회하지 않는다
     for t in tasks:
-        _bank_reply(s, t.id, result, "모의 은행")
+        _bank_reply(s, t.id, result, "모의 은행", lock=False)
     s.commit()
     return len(tasks)
 

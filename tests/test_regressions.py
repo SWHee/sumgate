@@ -78,7 +78,8 @@ def test_regress_f1_change_while_waiting_for_bank_cancels_task(s):
     assert sv.execute(s, cid)
     pay = [t for t in tasks(s, "회계 지급") if t.request_id == "SYN-F1B"][0]
     sv.correct_amount(s, "SYN-F1B", 3_000_000, "테스트", "test")
-    sv.bank_reply(s, pay.id, "성공")  # 취소된 작업에 온 회신은 반영하지 않는다
+    with pytest.raises(ValueError, match="취소된 작업"):
+        sv.bank_reply(s, pay.id, "성공")  # 취소된 작업에 온 회신은 반영하지 않는다
     assert s.get(Task, pay.id).status == "취소"
     assert s.get(RebateRequest, "SYN-F1B").status != "지급 완료"
     assert s.get(Case, cid).status == "승인 무효(재상신)"

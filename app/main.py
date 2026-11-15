@@ -1,6 +1,7 @@
 """모아봄(Moabom) 웹 화면. 서버 렌더링 HTML, 목록 화면은 5초 주기 재조회(웹소켓 없음)."""
 import json
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, Form, Request
@@ -13,7 +14,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app import ai, loader, rules, scenarios, service as sv, workspace
 from app.loader import ROOT
-from app.models import AgencyVersion, Approval, Case, Doc, EventLog, RebateRequest, Task
+from app.models import SCHEMA, AgencyVersion, Approval, Case, Doc, EventLog, RebateRequest, Task
 
 ROLES = ["영업지원", "영업임원", "회계", "모의 외부"]
 SPACES: workspace.Spaces | None = None
@@ -32,6 +33,8 @@ app = FastAPI(title="모아봄 Moabom", lifespan=lifespan, docs_url=None, redoc_
 T = Jinja2Templates(directory=str(ROOT / "app" / "templates"))
 T.env.filters["won"] = lambda v: f"{int(v):,}"
 T.env.filters["fromjson"] = json.loads
+# 릴리스 표시는 손으로 올린다. 플랫폼이 커밋 해시를 환경변수로 넣는지는 SDK 문서에서 확인되지 않아 표시하지 않는다
+T.env.globals |= {"release": "v1.1 2026-11-15", "schema": SCHEMA}
 
 
 @app.middleware("http")
@@ -234,12 +237,13 @@ def account_recheck(req: Request, tid: int):
 
 
 @app.post("/tasks/{tid}/bank")
-def bank(req: Request, tid: int, result: str = Form(...)):
-    return forbid(req, "모의 외부") or act(req, lambda s: sv.bank_reply(s, tid, result), f"모의 은행 회신({result})을 반영했습니다")
+def bank(req: Request, tid: int, result: str = Form(""), reason: str = Form("")):
+    return forbid(req, "모의 외부") or act(req, lambda s: sv.bank_reply(s, tid, result, reason=reason),
+                                          f"모의 은행 회신({result})을 반영했습니다")
 
 
 @app.post("/bank/all")
-def bank_all(req: Request, result: str = Form("성공")):
+def bank_all(req: Request, result: str = Form("")):
     return forbid(req, "모의 외부") or act(req, lambda s: f"모의 은행 회신 {sv.bank_reply_all(s, result)}건({result})")
 
 
@@ -372,27 +376,45 @@ def controls(req: Request):
     with db(req) as s:
         d_rows = [a for a in s.scalars(select(Approval).where(Approval.decision == "승인", Approval.invalid_reason != "")
                                        .order_by(Approval.id))]
-        e_ai = json.loads(sv.get(s, "e_ai") or "{}")
+        gold = scenarios.gold_e()
+        e_fb = scenarios.control_e()
+        e_ai = {}  # 저장된 AI 측정(문서별). 채점은 화면을 그릴 때 현재 정답으로 한다
+        for n in gold:
+            if m := json.loads(sv.get(s, f"e_ai:{n}") or "{}"):
+                e_ai[n] = m | ({"점수": ai.score(m["추출"], gold[n])} if "추출" in m else {})
+        both = [n for n in gold if "점수" in e_ai.get(n, {})]
+        e_cmp = {"문서": both or sorted(gold), "대체": ai.total([e_fb[n] for n in (both or gold)]),
+                 "AI": ai.total([e_ai[n]["점수"] for n in both]) if both else None}
         # 대조 D: 실행 전 승인을 옛 근거로 재사용했다면(계산만, 상태는 바꾸지 않음). 재검증 게이트는 항상 켜져 있다
         d_live = [r | {"사건": c.id} for c in s.scalars(select(Case).where(Case.status == "승인됨").order_by(Case.id))
                   if (r := sv.would_reuse(s, c.id)) and r["재검증 시"] != "통과"]
         return page(req, "controls.html", s, n_cases=len(cases), up=up, per_agency_up=per_agency_up,
                     ev_off=ev_off, ev_on=ev_on, c_items=c_items, obs=obs, obs_sum=sum(o["total"] for o in obs),
-                    d_rows=d_rows, d_live=d_live, e_fb=scenarios.control_e(), e_ai=e_ai, has_key=ai.has_key())
+                    d_rows=d_rows, d_live=d_live, e_fb=e_fb, e_ai=e_ai, e_cmp=e_cmp, gold=gold, fields=ai.FIELDS,
+                    has_key=ai.has_key())
 
 
 @app.post("/controls/e/ai")
-def control_e_ai(req: Request):
+def control_e_ai(req: Request, name: str = Form("")):
+    """문서 1건만 AI로 추출해 작업 공간 DB에 저장한다(한 요청이 플랫폼 시간 제한에 걸리지 않게 1건씩)."""
     if no := forbid(req):
         return no
+    if name not in scenarios.gold_e():  # 폼 값을 파일 경로로 쓰기 전에 정답 문서 이름인지 확인
+        return back(req, "처리하지 않음: 대조 E 문서가 아닙니다")
     if not ai.has_key():
         return back(req, "AI 키(OPENROUTER_API_KEY)가 없어 AI 추출은 미측정입니다")
-    gold = json.loads((scenarios.DOCS / "gold_E.json").read_text(encoding="utf-8"))
-    res = {}
-    for name, g in sorted(gold.items()):
-        ext = ai.extract(scenarios.doc_text(name), True)
-        res[name] = ai.score(ext, g) | {"추출기": ext["extractor"]}
-    return act(req, lambda s: (sv.put(s, "e_ai", json.dumps(res, ensure_ascii=False)), s.commit()) and "AI 추출 측정 완료")
+    t0 = datetime.now(timezone(timedelta(hours=9)))
+    ext = ai.extract(scenarios.doc_text(name), True)  # DB 세션을 열기 전에 호출해 긴 트랜잭션을 만들지 않는다
+    m = {"측정 시각": t0.strftime("%Y-%m-%d %H:%M:%S KST"), "추출기": ext["extractor"], "소요 ms": ext["ms"]}
+    ok = ext["extractor"].startswith("AI 사용")
+    if ok:  # 실패해 대체 추출로 떨어진 결과는 AI 점수로 저장하지 않는다
+        m["추출"] = {"fields": ext["fields"], "dropped": ext["dropped"]}
+
+    def f(s):
+        sv.put(s, f"e_ai:{name}", json.dumps(m, ensure_ascii=False))
+        s.commit()
+        return f"{name} AI 추출 측정 완료" if ok else f"{name} AI 측정 실패: {ext['extractor']}"
+    return act(req, f)
 
 
 # 7. 이력 -----------------------------------------------------------------

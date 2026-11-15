@@ -177,10 +177,13 @@ def s3(s) -> dict:
             "그룹 최종 상태": group_case(s).status, **counts(s)}
 
 
+def gold_e() -> dict:
+    return json.loads((DOCS / "gold_E.json").read_text(encoding="utf-8"))
+
+
 def control_e() -> dict:
-    gold = json.loads((DOCS / "gold_E.json").read_text(encoding="utf-8"))
     out = {}
-    for name, g in sorted(gold.items()):
+    for name, g in sorted(gold_e().items()):
         ext = ai.verify(doc_text(name), ai.fallback_extract(doc_text(name)))
         out[name] = ai.score(ext, g)
     return out

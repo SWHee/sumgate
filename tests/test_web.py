@@ -161,3 +161,12 @@ def test_menu_screens_show_title_and_content(db_url, monkeypatch):
         assert links["문서"] == "/papers"
         for p in ["/docs", "/redoc", "/openapi.json"]:
             assert cl.get(p).status_code == 404, p
+
+
+def test_footer_shows_release_and_schema(db_url, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", db_url)
+    from app.main import app
+    from app.models import SCHEMA
+    with TestClient(app) as cl:
+        for p in ("/", "/controls", "/tasks"):
+            assert f'<footer class="muted">v1.1 2026-11-15, 스키마 {SCHEMA[:8]}</footer>' in cl.get(p).text

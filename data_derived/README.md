@@ -11,7 +11,7 @@
 | `docs/EXP-01_D-011.txt` | EXP-01 | S3 마감 이후 | S3: 영업임원 거절 뒤 대리점 소명 회신. 대조 E 문서 1 | `m_agency_cv.csv#D-011`, `fin_collection_history_cv.csv#DP-00006` |
 | `docs/EXP-02_D-024.txt` | EXP-02 | 해당 없음 | 대조 E 문서 2 | `m_agency_cv.csv#D-024`, `fin_collection_history_cv.csv#DP-00013`, `#DP-00014` |
 | `docs/EXP-03_D-037.txt` | EXP-03 | 해당 없음 | 대조 E 문서 3 | `m_agency_cv.csv#D-037`, `fin_collection_history_cv.csv#DP-00020` |
-| `docs/gold_E.json` | 정답 | 해당 없음 | 대조 E 정답. 각 항목은 원문 부분 문자열이다 | EXP-01~03 |
+| `docs/gold_E.json` | 정답 | 해당 없음 | 대조 E 정답. 거래처 ID와 적용일은 정규화한 값, 주장과 증빙과 미확인 항목은 원문 부분 문자열(`text`)과 일치 판정용 핵심어(`keywords`, 원문에 있는 낱말). 핵심어는 AI 측정 전에 정했다 | EXP-01~03 |
 | `synthetic_requests.csv` | SYN-RB-0001 | 2026-08-01 10:00 | S3: 8월 회차로 옮겨진 관련자 그룹에 7월 정산 요청이 새로 들어와 합계가 바뀌는 상황 | 그룹 {D-011, D-024, D-037} |
 
 ## 주의

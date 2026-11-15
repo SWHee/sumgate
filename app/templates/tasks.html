@@ -21,7 +21,7 @@
 {% if t.type == "관계 정보 확인" and t.status == "열림" %}<a href="/mock">모의 입력에서 정정 신고 넣기</a>{% endif %}
 {% if t.type == "회계 지급" and t.status == "지급 대기" and role == "모의 외부" %}{{ mock() }}
 <form class="inline" method="post" action="/tasks/{{ t.id }}/bank"><input type="hidden" name="result" value="성공"><button>은행 성공</button></form>
-<form class="inline" method="post" action="/tasks/{{ t.id }}/bank"><input type="hidden" name="result" value="반려"><button>은행 반려</button></form>{% endif %}
+<form class="inline" method="post" action="/tasks/{{ t.id }}/bank"><input type="hidden" name="result" value="반려"><input name="reason" placeholder="반려 사유(선택)" size="14"><button>은행 반려</button></form>{% endif %}
 {% if t.type == "은행 재처리" and t.status == "열림" and role == "회계" %}<form class="inline" method="post" action="/tasks/{{ t.id }}/retry"><button>재처리 요청</button></form>{% endif %}
 {% if t.type in ["지급계좌 확인", "회계 지급"] and t.status in ["열림", "지급 대기"] and role != "모의 외부" %}<span class="muted">회신은 모의 외부 역할에서 넣습니다</span>{% endif %}
 {% if t.type == "소명 요청" and t.status == "열림" %}<a href="/mock">모의 입력에서 소명 회신 넣기</a>{% endif %}

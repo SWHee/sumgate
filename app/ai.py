@@ -248,16 +248,66 @@ def draft(facts: dict, use_ai: bool = True) -> tuple[str, str]:
     return txt, label
 
 
+TEXT_FIELDS = ("claims", "evidence", "unknowns")  # 서술형: 정답에 적어 둔 핵심어가 모두 들어 있으면 일치
+_SP = re.compile(r"\s+")
+_ID = re.compile(r"D\s*[-\u2010-\u2015]?\s*(\d{3})(?!\d)")
+_DATE = re.compile(r"(\d{4})\s*(?:-|\.|/|년)\s*(\d{1,2})\s*(?:-|\.|/|월)\s*(\d{1,2})")
+
+
+def norm(field: str, value: str) -> str | None:
+    """대조 E 값 정규화. 거래처 ID와 날짜는 값에 하나만 있어야 한다(둘 이상이면 어느 정답도 채우지 못함)."""
+    if field == "agencies":
+        ids = _ID.findall(value.upper())
+        return f"D-{ids[0]}" if len(ids) == 1 else None
+    if field == "effective_dates":
+        ds = _DATE.findall(value)
+        return f"{ds[0][0]}-{int(ds[0][1]):02d}-{int(ds[0][2]):02d}" if len(ds) == 1 else None
+    return _SP.sub("", value)
+
+
+def match(field: str, want, value: str) -> bool:
+    n = norm(field, value)
+    if n is None:
+        return False
+    if field in TEXT_FIELDS:
+        return all(_SP.sub("", k) in n for k in want["keywords"])
+    return n == want
+
+
+def _pairs(field: str, want: list, got: list) -> int:
+    """정답 항목과 추출 항목의 일대일 최대 대응 수(이분 매칭). 한 추출 항목은 정답 하나만 채운다."""
+    owner = {}  # 추출 항목 번호 -> 정답 항목 번호
+
+    def take(w, seen):
+        for g, it in enumerate(got):
+            if g not in seen and match(field, want[w], it["value"]):
+                seen.add(g)
+                if g not in owner or take(owner[g], seen):
+                    owner[g] = w
+                    return True
+        return False
+    return sum(take(w, set()) for w in range(len(want)))
+
+
 def score(extraction: dict, gold: dict) -> dict:
-    """대조 E: 정답 대비 누락률과 오류율. 항목 일치는 정답 문자열이 인용에 포함되는지로 본다."""
-    n_gold = n_found = n_ext = n_wrong = 0
+    """대조 E: 필드별 정확(정답과 짝지어진 추출), 누락(짝 없는 정답), 오류(짝 없는 추출), 인용 검증 건수.
+    인용이 원문에 없는 항목(근거 없음)은 verify가 이미 버렸으므로 정확과 오류에 넣지 않고 인용 검증에만 센다."""
+    out = {}
     for k in FIELDS:
-        got = extraction["fields"].get(k, [])
-        want = gold.get(k, [])
-        n_gold += len(want)
-        n_ext += len(got)
-        n_found += sum(any(w in g["quote"] or g["quote"] in w for g in got) for w in want)
-        n_wrong += sum(not any(w in g["quote"] or g["quote"] in w for w in want) for g in got)
-    return {"정답 항목": n_gold, "찾음": n_found, "추출 항목": n_ext, "오추출": n_wrong,
-            "누락률": round((n_gold - n_found) / n_gold, 3) if n_gold else 0.0,
-            "오류율": round(n_wrong / n_ext, 3) if n_ext else 0.0}
+        got, want = extraction["fields"].get(k, []), gold.get(k, [])
+        hit = _pairs(k, want, got)
+        out[k] = {"정확": hit, "누락": len(want) - hit, "오류": len(got) - hit}
+    return {"필드": out, "인용": {"원문 일치": sum(len(v) for v in extraction["fields"].values()),
+                                  "근거 없음": len(extraction.get("dropped", []))}}
+
+
+def total(scores: list[dict]) -> dict:
+    t = {"필드": {k: {"정확": 0, "누락": 0, "오류": 0} for k in FIELDS}, "인용": {"원문 일치": 0, "근거 없음": 0}}
+    for sc in scores:
+        for k in FIELDS:
+            for m in t["필드"][k]:
+                t["필드"][k][m] += sc["필드"][k][m]
+        for m in t["인용"]:
+            t["인용"][m] += sc["인용"][m]
+    t["합계"] = {m: sum(v[m] for v in t["필드"].values()) for m in ("정확", "누락", "오류")}
+    return t

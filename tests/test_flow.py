@@ -3,6 +3,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from sqlalchemy import select
 
 from app import ai, rules, scenarios as sc, service as sv
@@ -129,8 +130,9 @@ def test_c8_9_and_f4_no_duplicates(s):
     pays = tasks(s, "회계 지급")
     assert len(pays) == 37 and len({t.idem_key for t in pays}) == 37
     sv.bank_reply(s, pays[0].id, "성공")
-    sv.bank_reply(s, pays[0].id, "성공")  # 같은 회신 재전송
-    assert len(list(s.scalars(select(EventLog).where(EventLog.action == "중복 회신 무시")))) == 1
+    with pytest.raises(ValueError, match="이미 지급 완료"):
+        sv.bank_reply(s, pays[0].id, "성공")  # 같은 회신 재전송은 거부하고 이력에 남긴다
+    assert len(list(s.scalars(select(EventLog).where(EventLog.action == "은행 회신 거부")))) == 1
     t, created = sv.add_task(s, "회계 지급", "회계", pays[1].idem_key)
     assert not created and t.id == pays[1].id
     # 합산 누락 없음: 모든 진행 요청이 정확히 한 사건에 속하고 합계가 맞다

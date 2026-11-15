@@ -206,14 +206,38 @@ def test_web_review_flow_and_ai_status(db_url, monkeypatch, orouter):
         assert "최근 문서 확인으로 바뀐 것:" in cl.get("/cases/1").text
 
 
-def test_control_e_via_openrouter(db_url, monkeypatch, orouter):
+def test_control_e_one_doc_per_request_saved_in_workspace(db_url, monkeypatch, orouter):
+    """대조 E AI 측정은 요청당 문서 1건(API 1회). 결과는 작업 공간 DB에 남고 견본은 미측정 그대로."""
     monkeypatch.setenv("DATABASE_URL", db_url)
     from app.main import app
+    name = "EXP-03_D-037.txt"
+    text = sc.doc_text(name)
+    reply = {k: [] for k in ai.FIELDS} | {
+        "claims": [{"value": "정산계좌를 공유", "quote": "정산계좌를 공유하고 있습니다"},
+                   {"value": "지어낸 주장", "quote": "원문에 없는 문장"}],
+        "agencies": [{"value": "D-037", "quote": "D-037"}], "effective_dates": [{"value": "2022년 8월 12일", "quote": "2022-08-12"}]}
+    orouter["reply"] = lambda: _resp(content=json.dumps(reply, ensure_ascii=False))
+    assert "정산계좌를 공유하고 있습니다" in text
     with TestClient(app) as cl:
         cl.get("/")
-        cl.post("/controls/e/ai")
-        assert len(orouter["calls"]) == 3
-        assert ai.OR_LABEL in cl.get("/controls").text
+        assert "처리하지 않음" in cl.post("/controls/e/ai", data={"name": "../../app/w07.db"}).text
+        assert orouter["calls"] == []
+        assert "측정 완료" in cl.post("/controls/e/ai", data={"name": name}).text
+        page = cl.get("/controls").text
+        assert len(orouter["calls"]) == 1 and "AI 측정 1/3건" in page and ai.OR_LABEL in page
+        assert re.search(r"EXP-03_D-037.txt</td>\s*<td>5/0/1</td>\s*<td>3/2/0, 인용 근거 없음 1", page)
+        assert "(실제 시각)" in page and "KST" in page
+        assert "합계 대상 문서: EXP-03_D-037.txt (두 추출기를 모두 측정한 문서만)" in page
+        assert cl.get("/controls").text.count("이 문서 AI 측정(API 1회)") == 3
+        cl.cookies.delete("ws")  # 견본: 저장된 측정이 없으므로 미측정
+        assert "AI 측정 0/3건" in cl.get("/controls").text
+
+    orouter["reply"] = lambda: _resp(500, body={"error": {"message": "x"}})  # 실패는 점수로 저장하지 않는다
+    with TestClient(app) as cl:
+        cl.get("/")
+        assert "AI 측정 실패" in cl.post("/controls/e/ai", data={"name": name}).text
+        page = cl.get("/controls").text
+        assert "측정 실패(점수 없음)" in page and "AI 측정 0/3건" in page
 
 
 def test_scenarios_never_call_ai(s, orouter):

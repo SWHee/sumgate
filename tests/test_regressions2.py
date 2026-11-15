@@ -126,7 +126,8 @@ def test_r4_join_before_bank_reply_cancels_and_resums(s):
     assert case_of(s, "SYN-R4-B").id == c.id
     assert (c.total, c.route, c.status) == (2_500_000, rules.ROUTE_EXEC, "상위 승인 필요")
     assert not [x for x in sv.case_approvals(s, c.id) if x.valid]
-    sv.bank_reply(s, pay.id, "성공")  # 취소된 작업의 회신은 반영하지 않는다
+    with pytest.raises(ValueError, match="취소된 작업"):
+        sv.bank_reply(s, pay.id, "성공")  # 취소된 작업의 회신은 반영하지 않는다
     assert s.get(RebateRequest, "SYN-R4-A").status != "지급 완료"
     sv.approve_all_support(s)
     assert s.get(Case, c.id).status == "상위 승인 필요"
