@@ -253,3 +253,13 @@ def test_control_e_one_doc_per_request_saved_in_workspace(db_url, monkeypatch, o
 def test_scenarios_never_call_ai(s, orouter):
     sc.s2(s)  # 정정 문서 접수와 상신이 들어 있다
     assert orouter["calls"] == []
+
+
+def test_ai_draft_never_contains_middle_dot(monkeypatch):
+    """배포본에서 AI 상신 초안에 가운뎃점이 섞여 나온 것을 고정(TOPIC 7절 11)."""
+    from app import ai
+    monkeypatch.setattr(ai, "has_key", lambda: True)
+    monkeypatch.setattr(ai, "_ai_draft", lambda facts: "입금 DP-00013\u00b7DP-00014 관측. 승인 여부는 영업임원이 결정합니다.")
+    txt, label = ai.draft({"members": ["D-011"], "pay_month": "2026-07", "total": 1, "route": "영업임원 승인"})
+    assert "\u00b7" not in txt and "DP-00013, DP-00014" in txt
+    assert label.startswith("AI 사용")

@@ -231,8 +231,8 @@ def draft(facts: dict, use_ai: bool = True) -> tuple[str, str]:
     label = "AI 미사용(대체 작성)"
     if use_ai and has_key():
         try:
-            txt = _ai_draft(facts)
-            bad = [w for w in FORBIDDEN if txt and w in txt]
+            txt = (_ai_draft(facts) or "").replace("\u00b7", ", ")  # 화면 문구에 가운뎃점을 쓰지 않는다(TOPIC 7절 11)
+            bad =[w for w in FORBIDDEN if txt and w in txt]
             if txt and not bad:
                 return txt, _ok_label()
             label += ", AI 서술에 금지 표현 있음" if bad else ", AI 응답 비어 있음"  # 금지어 자체는 화면에 쓰지 않는다
